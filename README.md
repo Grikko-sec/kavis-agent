@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/Grikko-sec/kavis-agent/main/install
 ```
 
 OS를 감지해 최신 릴리스에서 맞는 RPM을 받아 설치하고, `config.ini`를 비대화형으로
-작성한 뒤 `kavis-agent.timer`까지 활성화한다. Ansible/cloud-init 등 자동화에도 그대로 쓸 수 있다.
+작성한 뒤 `kavis-agent.service`까지 활성화한다. Ansible/cloud-init 등 자동화에도 그대로 쓸 수 있다.
 
 ### 수동 설치
 
@@ -28,7 +28,7 @@ OS를 감지해 최신 릴리스에서 맞는 RPM을 받아 설치하고, `confi
 sudo dnf install -y kavis-agent-<version>-1.el9.noarch.rpm
 sudo kavis-agent configure --server-url https://kavis.example.com --enroll-key <등록키>
 # 또는 vi /etc/kavis-agent/config.ini 로 직접 편집
-sudo systemctl enable --now kavis-agent.timer
+sudo systemctl enable --now kavis-agent.service
 ```
 
 ## 설정 (`/etc/kavis-agent/config.ini`)
@@ -49,9 +49,21 @@ verify_tls = true
 timeout = 20
 ```
 
-## 수집 주기
+## 동작 방식 — 상주 데몬
 
-`kavis-agent.timer` — 매시간(`OnCalendar=hourly`), ±5분 랜덤 지연(`RandomizedDelaySec=300`).
+`kavis-agent.service`는 `Type=simple` 상주 프로세스로 동작한다 (`ps`/`pstree`/
+`systemctl status`에 항상 보이고, `enable`로 부팅 시 자동 시작된다). 내부에서
+자체적으로 주기를 관리한다 — 기본 1시간(`--interval 3600`)마다, ±5분 랜덤
+지연(`--jitter 300`)을 두고 수집·전송을 반복한다. 예상치 못한 오류가 나도
+데몬이 죽지 않고 다음 주기를 기다리며, `SIGTERM`(`systemctl stop`)을 받으면
+1초 이내에 정상 종료한다.
+
+```bash
+systemctl status kavis-agent.service   # active (running) 이어야 정상
+journalctl -u kavis-agent.service -f   # 실시간 로그
+```
+
+수동 1회 테스트만 하고 싶으면 `sudo kavis-agent run` (상주하지 않고 1회 실행 후 종료).
 
 ## 자원 제한
 

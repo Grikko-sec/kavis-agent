@@ -11,17 +11,22 @@ import argparse
 import configparser
 import json
 import os
+import random
 import re
+import signal
 import socket
 import ssl
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 
 CONFIG_PATH = "/etc/kavis-agent/config.ini"
 MAX_ITEM_BYTES = 190_000  # 서버 측 200KB 제한보다 여유를 둔다
 TIMEOUT_SECONDS = 20
+DEFAULT_INTERVAL_SECONDS = 3600  # 데몬 모드 기본 수집 주기 (1시간)
+DEFAULT_JITTER_SECONDS = 300     # 여러 서버가 한꺼번에 몰리지 않도록 무작위로 더해지는 지연
 
 
 def log(msg: str) -> None:
@@ -73,7 +78,7 @@ def enroll(config: dict) -> str:
         headers={
             "Authorization": f"Bearer {config['enroll_key']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.4.1",
+            "User-Agent": "kavis-agent/0.5.0",
         },
     )
     ctx = make_ssl_context(url, config["verify_tls"])
@@ -254,7 +259,7 @@ def collect() -> dict:
         items["dnf_security_updates"] = truncate(dnf_updates)
 
     return {
-        "agent_version": "0.4.1",
+        "agent_version": "0.5.0",
         "hostname": socket.gethostname(),
         "items": items,
         "inventory": collect_inventory(),
@@ -378,7 +383,7 @@ def send(config: dict, payload: dict) -> None:
         headers={
             "Authorization": f"Bearer {config['token']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.4.1",
+            "User-Agent": "kavis-agent/0.5.0",
         },
     )
 
@@ -398,6 +403,7 @@ def send(config: dict, payload: dict) -> None:
 
 
 def cmd_run(_args) -> None:
+    """1회 수집 후 종료 — 수동 테스트/디버깅용. 상시 운영은 'daemon'을 쓴다."""
     config = read_config()
     if not config["token"]:
         config["token"] = enroll(config)
@@ -407,11 +413,56 @@ def cmd_run(_args) -> None:
     send(config, payload)
 
 
+_shutdown = False
+
+
+def _handle_shutdown_signal(signum, frame) -> None:
+    global _shutdown
+    _shutdown = True
+
+
+def cmd_daemon(args) -> None:
+    """상주 프로세스로 실행하며, 내부에서 자체적으로 주기를 돌려 수집·전송한다.
+    systemd Type=simple 서비스로 등록되어 ps/pstree/systemctl status에 항상 보인다."""
+    signal.signal(signal.SIGTERM, _handle_shutdown_signal)
+    signal.signal(signal.SIGINT, _handle_shutdown_signal)
+
+    log(f"데몬 모드 시작 (주기={args.interval}초, 지터=0~{args.jitter}초)")
+    while not _shutdown:
+        try:
+            config = read_config()
+            if not config["token"]:
+                config["token"] = enroll(config)
+            payload = collect()
+            log(f"{len(payload['items'])}개 항목 수집 완료, 전송 중...")
+            send(config, payload)
+        except SystemExit:
+            log("이번 주기 실행에 실패했습니다 — 다음 주기에 다시 시도합니다.")
+        except Exception as e:  # noqa: BLE001 - 데몬은 어떤 예외에도 죽지 않고 다음 주기를 기다려야 한다
+            log(f"예상치 못한 오류로 이번 주기를 건너뜁니다: {e}")
+
+        if _shutdown:
+            break
+
+        sleep_for = args.interval + random.randint(0, max(args.jitter, 0))
+        log(f"{sleep_for}초 후 다음 수집을 실행합니다.")
+        for _ in range(sleep_for):
+            if _shutdown:
+                break
+            time.sleep(1)
+
+    log("종료 신호를 받아 데몬을 종료합니다.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="kavis-agent")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("run", help="수집 후 전송 (systemd timer가 호출)")
+    sub.add_parser("run", help="1회 수집 후 종료 (수동 테스트용)")
+
+    p_daemon = sub.add_parser("daemon", help="상주 실행하며 자체 주기로 수집 (systemd 서비스가 호출)")
+    p_daemon.add_argument("--interval", type=int, default=DEFAULT_INTERVAL_SECONDS)
+    p_daemon.add_argument("--jitter", type=int, default=DEFAULT_JITTER_SECONDS)
 
     p_conf = sub.add_parser("configure", help="config.ini를 비대화형으로 작성 (프로비저닝 자동화용)")
     p_conf.add_argument("--server-url", default="")
@@ -422,7 +473,7 @@ def main() -> None:
     p_conf.add_argument("--no-verify-tls", dest="verify_tls", action="store_false")
 
     args = parser.parse_args()
-    {"run": cmd_run, "configure": cmd_configure}[args.command](args)
+    {"run": cmd_run, "daemon": cmd_daemon, "configure": cmd_configure}[args.command](args)
 
 
 if __name__ == "__main__":

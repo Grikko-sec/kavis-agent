@@ -5,7 +5,7 @@
 #     | sudo bash -s -- --server-url https://kavis.example.com --enroll-key <KEY>
 #
 # 최신 릴리스에서 이 서버의 OS에 맞는 RPM을 받아 설치하고, config.ini를 비대화형으로
-# 작성한 뒤 systemd timer까지 활성화한다. root(sudo)로 실행해야 한다.
+# 작성한 뒤 systemd 서비스까지 활성화한다. root(sudo)로 실행해야 한다.
 set -euo pipefail
 
 REPO="Grikko-sec/kavis-agent"
@@ -19,7 +19,7 @@ while [[ $# -gt 0 ]]; do
     --server-url) SERVER_URL="$2"; shift 2 ;;
     --enroll-key) ENROLL_KEY="$2"; shift 2 ;;
     --token)      TOKEN="$2"; shift 2 ;;
-    --no-start)   START_NOW=0; shift ;;
+    --no-start)   START_NOW=0; shift ;;  # 설치·설정만 하고 서비스는 활성화(enable)만, 시작은 안 함
     *) echo "알 수 없는 옵션: $1" >&2; exit 2 ;;
   esac
 done
@@ -83,14 +83,16 @@ CONF_ARGS=(--server-url "$SERVER_URL")
 echo "[install] config.ini 작성 중..."
 /usr/local/bin/kavis-agent configure "${CONF_ARGS[@]}"
 
-# ── 활성화 ───────────────────────────────────────────
+# ── 활성화 (상주 데몬 — enable --now로 바로 실행 + 부팅 시 자동 시작) ──
 systemctl daemon-reload
-systemctl enable --now kavis-agent.timer
-
 if [[ "$START_NOW" -eq 1 ]]; then
-  echo "[install] 최초 1회 실행 중 (dnf 캐시가 없으면 몇 분 걸릴 수 있습니다)..."
-  systemctl start kavis-agent.service
+  echo "[install] 서비스 활성화 중 (첫 수집은 dnf 캐시가 없으면 몇 분 걸릴 수 있습니다)..."
+  systemctl enable --now kavis-agent.service
+  sleep 2
   systemctl --no-pager status kavis-agent.service || true
+else
+  systemctl enable kavis-agent.service
+  echo "[install] --no-start 지정됨 — 활성화만 하고 시작은 안 했습니다. 필요 시 'systemctl start kavis-agent.service'."
 fi
 
-echo "[install] 완료. 로그: journalctl -u kavis-agent.service -n 50"
+echo "[install] 완료. 로그: journalctl -u kavis-agent.service -f"
