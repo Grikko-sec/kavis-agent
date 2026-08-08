@@ -29,7 +29,7 @@ sudo systemctl enable --now kavis-agent.timer
 
 ```ini
 [agent]
-server_url = https://security.hyunni.com
+server_url = https://kavis.example.com
 enroll_key =
 token =
 verify_tls = true

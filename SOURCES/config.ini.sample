@@ -1,5 +1,5 @@
 [agent]
-server_url = https://security.hyunni.com
+server_url = https://kavis.example.com
 
 ; ── 둘 중 하나만 채우면 됩니다 ─────────────────────────
 ; A) 자동 등록: 관리자 페이지 > 에이전트 자동 등록 에서 발급받은 공용 키.
