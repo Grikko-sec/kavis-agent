@@ -73,7 +73,7 @@ def enroll(config: dict) -> str:
         headers={
             "Authorization": f"Bearer {config['enroll_key']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.3.0",
+            "User-Agent": "kavis-agent/0.4.0",
         },
     )
     ctx = make_ssl_context(url, config["verify_tls"])
@@ -213,6 +213,34 @@ def collect() -> dict:
     if ports:
         items["listening_ports"] = truncate(ports)
 
+    passwd = read_file("/etc/passwd")
+    if passwd:
+        items["passwd"] = truncate(passwd)
+
+    # /etc/shadow는 내용이 아니라 권한·소유자만 — 해시도 유출 가능한 비밀값이라 절대 원문을 가져오지 않는다
+    shadow_perm = run_cmd(["stat", "-c", "%a %U:%G %n", "/etc/shadow", "/etc/passwd"])
+    if shadow_perm:
+        items["shadow_perm"] = truncate(shadow_perm)
+
+    login_defs = read_file("/etc/login.defs")
+    if login_defs:
+        items["login_defs"] = truncate(login_defs)
+
+    pwquality_conf = read_file("/etc/security/pwquality.conf")
+    if pwquality_conf:
+        items["pwquality_conf"] = truncate(pwquality_conf)
+
+    cron_parts = []
+    for p in ("/etc/cron.allow", "/etc/cron.deny"):
+        c = read_file(p)
+        if c:
+            cron_parts.append(f"# {p}\n{c}")
+    root_crontab = run_cmd(["crontab", "-l", "-u", "root"])
+    if root_crontab:
+        cron_parts.append(f"# root crontab\n{root_crontab}")
+    if cron_parts:
+        items["cron_config"] = truncate("\n\n".join(cron_parts))
+
     # dnf가 없는 배포판(예: 구형 yum 계열)은 조용히 건너뛴다.
     # 저장소 메타데이터가 캐시되지 않은 첫 실행은 시간이 오래 걸릴 수 있어 타임아웃을 넉넉히 둔다.
     dnf_updates = run_cmd(
@@ -222,10 +250,117 @@ def collect() -> dict:
         items["dnf_security_updates"] = truncate(dnf_updates)
 
     return {
-        "agent_version": "0.3.0",
+        "agent_version": "0.4.0",
         "hostname": socket.gethostname(),
         "items": items,
+        "inventory": collect_inventory(),
     }
+
+
+def _to_int(s):
+    try:
+        return int(re.sub(r"\D", "", s or ""))
+    except (ValueError, TypeError):
+        return None
+
+
+def collect_inventory() -> dict:
+    """자산 인벤토리(식별/OS/하드웨어/네트워크) — 취약점 판정과 무관한 단순 사실 수집.
+    판정이 아니라 사실 추출이므로, 원문이 아니라 구조화된 값으로 보낸다."""
+    inv = {"fqdn": socket.getfqdn()}
+
+    # ── 네트워크 ──
+    ifaces, all_ips, all_macs = [], [], []
+    ip_json = run_cmd(["ip", "-j", "addr", "show"])
+    if ip_json:
+        try:
+            for link in json.loads(ip_json):
+                name = link.get("ifname")
+                if name == "lo":
+                    continue
+                mac = link.get("address")
+                ips = [a["local"] for a in link.get("addr_info", []) if a.get("family") == "inet"]
+                if mac:
+                    all_macs.append(mac)
+                all_ips.extend(ips)
+                ifaces.append({"name": name, "mac": mac, "ips": ips})
+        except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
+            pass
+    inv["network_interfaces"] = ifaces
+    inv["ip_addresses"] = all_ips
+    inv["mac_addresses"] = all_macs
+
+    dns_servers, domain = [], None
+    for line in read_file("/etc/resolv.conf").splitlines():
+        line = line.strip()
+        if line.startswith("nameserver"):
+            parts = line.split()
+            if len(parts) >= 2:
+                dns_servers.append(parts[1])
+        elif (line.startswith("domain") or line.startswith("search")) and not domain:
+            parts = line.split()
+            if len(parts) >= 2:
+                domain = parts[1]
+    inv["dns_servers"] = dns_servers
+    inv["domain"] = domain
+
+    # ── 식별 (UUID) ──
+    uuid = read_file("/sys/class/dmi/id/product_uuid").strip() or read_file("/etc/machine-id").strip()
+    inv["machine_uuid"] = uuid or None
+
+    # ── OS ──
+    os_info = {}
+    for line in read_file("/etc/os-release").splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            os_info[k.strip()] = v.strip().strip('"')
+    inv["os_name"] = os_info.get("PRETTY_NAME") or os_info.get("NAME")
+    inv["os_version"] = os_info.get("VERSION_ID") or os_info.get("VERSION")
+    inv["os_arch"] = run_cmd(["uname", "-m"]).strip() or None
+    inv["kernel_version"] = run_cmd(["uname", "-r"]).strip() or None
+
+    # ── 하드웨어 (dmidecode -- 없거나 권한 부족하면 조용히 None) ──
+    def dmi(field):
+        v = run_cmd(["dmidecode", "-s", field]).strip()
+        return v if v and not v.startswith("#") else None
+
+    inv["manufacturer"] = dmi("system-manufacturer")
+    inv["model"] = dmi("system-product-name")
+    inv["serial_number"] = dmi("system-serial-number")
+    inv["bios_version"] = dmi("bios-version")
+
+    cpu_model = cpu_count = core_count = None
+    for line in run_cmd(["lscpu"]).splitlines():
+        if line.startswith("Model name:"):
+            cpu_model = line.split(":", 1)[1].strip()
+        elif line.startswith("Socket(s):"):
+            cpu_count = _to_int(line.split(":", 1)[1])
+        elif line.startswith("CPU(s):") and core_count is None:
+            core_count = _to_int(line.split(":", 1)[1])
+    inv["cpu_model"] = cpu_model
+    inv["cpu_count"] = cpu_count
+    inv["cpu_core_count"] = core_count
+
+    mem_total_kb = None
+    for line in read_file("/proc/meminfo").splitlines():
+        if line.startswith("MemTotal:"):
+            mem_total_kb = _to_int(line.split(":", 1)[1])
+            break
+    inv["memory_mb"] = (mem_total_kb // 1024) if mem_total_kb else None
+
+    disk_gb = None
+    for line in run_cmd(["df", "-BG", "--total", "-x", "tmpfs", "-x", "devtmpfs"]).splitlines():
+        if line.startswith("total"):
+            parts = line.split()
+            if len(parts) >= 2:
+                disk_gb = _to_int(parts[1])
+
+    inv["disk_total_gb"] = disk_gb
+
+    virt = run_cmd(["systemd-detect-virt"]).strip()
+    inv["virtualization_type"] = "physical" if virt == "none" else (virt or None)
+
+    return inv
 
 
 def send(config: dict, payload: dict) -> None:
@@ -239,7 +374,7 @@ def send(config: dict, payload: dict) -> None:
         headers={
             "Authorization": f"Bearer {config['token']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.3.0",
+            "User-Agent": "kavis-agent/0.4.0",
         },
     )
 
