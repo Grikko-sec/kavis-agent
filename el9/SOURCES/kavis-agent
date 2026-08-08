@@ -73,7 +73,7 @@ def enroll(config: dict) -> str:
         headers={
             "Authorization": f"Bearer {config['enroll_key']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.4.0",
+            "User-Agent": "kavis-agent/0.4.1",
         },
     )
     ctx = make_ssl_context(url, config["verify_tls"])
@@ -92,20 +92,22 @@ def enroll(config: dict) -> str:
         log(f"자동 등록 응답에 토큰이 없습니다: {result}")
         sys.exit(1)
 
-    save_token(token)
+    saved = save_token(token)
+    status = "설정 파일에 저장했습니다" if saved else "설정 파일 저장에 실패했습니다 — 이번 실행에만 사용되고 다음 실행에서 다시 등록됩니다"
     log(f"자동 등록 완료 (asset_id={result.get('asset_id')}, "
-        f"{'신규 생성' if result.get('created') else '기존 자산 재사용'}) — 토큰을 설정 파일에 저장했습니다.")
+        f"{'신규 생성' if result.get('created') else '기존 자산 재사용'}) — 토큰을 {status}.")
     return token
 
 
-def save_token(token: str) -> None:
-    """CONFIG_PATH의 token = ... 줄만 교체한다. 없으면 [agent] 섹션 끝에 추가한다."""
+def save_token(token: str) -> bool:
+    """CONFIG_PATH의 token = ... 줄만 교체한다. 없으면 [agent] 섹션 끝에 추가한다.
+    실제로 저장됐는지 여부를 반환한다 — 호출자가 성공 여부를 로그에 정확히 남길 수 있도록."""
     try:
         with open(CONFIG_PATH, "r") as f:
             lines = f.readlines()
     except OSError as e:
         log(f"설정 파일을 읽을 수 없어 토큰을 저장하지 못했습니다: {e}")
-        return
+        return False
 
     pattern = re.compile(r"^\s*token\s*=.*$")
     replaced = False
@@ -128,8 +130,10 @@ def save_token(token: str) -> None:
     try:
         with open(CONFIG_PATH, "w") as f:
             f.writelines(lines)
+        return True
     except OSError as e:
         log(f"설정 파일에 토큰을 저장하지 못했습니다: {e}")
+        return False
 
 
 def cmd_configure(args) -> None:
@@ -250,7 +254,7 @@ def collect() -> dict:
         items["dnf_security_updates"] = truncate(dnf_updates)
 
     return {
-        "agent_version": "0.4.0",
+        "agent_version": "0.4.1",
         "hostname": socket.gethostname(),
         "items": items,
         "inventory": collect_inventory(),
@@ -374,7 +378,7 @@ def send(config: dict, payload: dict) -> None:
         headers={
             "Authorization": f"Bearer {config['token']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.4.0",
+            "User-Agent": "kavis-agent/0.4.1",
         },
     )
 

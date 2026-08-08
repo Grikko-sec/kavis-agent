@@ -1,5 +1,5 @@
 Name:           kavis-agent
-Version:        0.4.0
+Version:        0.4.1
 Release:        1%{?dist}
 Summary:        Vulnerability check platform collection agent
 License:        Proprietary
@@ -61,6 +61,9 @@ EOF
 %systemd_postun_with_restart kavis-agent.timer
 
 %changelog
+* Sat Aug 08 2026 kavis-platform <admin@security.hyunni.com> - 0.4.1-1
+- 버그 수정: ProtectSystem=full이 /etc를 읽기전용으로 막아서 자동등록 토큰이 config.ini에 저장되지 못하던 문제 수정
+  (ReadWritePaths=/etc/kavis-agent 예외 추가). 저장 실패를 성공으로 잘못 로그하던 문제도 함께 수정.
 * Sat Aug 08 2026 kavis-platform <admin@security.hyunni.com> - 0.4.0-1
 - 계정/인증 관련 KISA 수집 항목 추가: passwd, shadow_perm(권한만), login_defs, pwquality_conf, cron_config
 - 자산 인벤토리 수집 추가 (식별/OS/하드웨어/네트워크) — 판정 아닌 사실 데이터, /api/agent/ingest.php가 asset_inventory 테이블에 저장

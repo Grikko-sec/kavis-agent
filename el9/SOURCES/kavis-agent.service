@@ -13,6 +13,8 @@ TimeoutStartSec=420
 # 설정 파일 읽기(root-owned) 및 sshd_config 등 시스템 설정 수집을 위해 root로 실행한다.
 # dnf가 /var/cache/dnf에 락/캐시를 쓰므로 ProtectSystem은 full(=/etc,/usr,/boot만 보호)로 둔다.
 ProtectSystem=full
+# 자동등록 시 토큰을 config.ini에 저장해야 하므로, ProtectSystem=full의 /etc 읽기전용 예외로 이 경로만 허용한다.
+ReadWritePaths=/etc/kavis-agent
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
