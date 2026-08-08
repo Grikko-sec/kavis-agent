@@ -12,9 +12,22 @@ Kavis(사내 취약점 점검 통합 플랫폼)용 수집 에이전트. RHEL/Roc
 
 ## 설치
 
+### 한 줄 설치 (권장)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Grikko-sec/kavis-agent/main/install.sh \
+  | sudo bash -s -- --server-url https://kavis.example.com --enroll-key <등록키>
+```
+
+OS를 감지해 최신 릴리스에서 맞는 RPM을 받아 설치하고, `config.ini`를 비대화형으로
+작성한 뒤 `kavis-agent.timer`까지 활성화한다. Ansible/cloud-init 등 자동화에도 그대로 쓸 수 있다.
+
+### 수동 설치
+
 ```bash
 sudo dnf install -y kavis-agent-<version>-1.el9.noarch.rpm
-sudo vi /etc/kavis-agent/config.ini
+sudo kavis-agent configure --server-url https://kavis.example.com --enroll-key <등록키>
+# 또는 vi /etc/kavis-agent/config.ini 로 직접 편집
 sudo systemctl enable --now kavis-agent.timer
 ```
 
@@ -45,15 +58,19 @@ timeout = 20
 운영 서비스와 자원을 경합하지 않도록 서비스 유닛에 `Nice=15`,
 `IOSchedulingClass=idle`, `CPUQuota=25%`, `MemoryMax=256M`이 설정되어 있다.
 
-## RPM 빌드
+## RPM 빌드 (RHEL/Rocky/CentOS/Alma 9)
 
 ```bash
-rpmbuild --define "_topdir $(pwd)/rpmbuild" --define "_sourcedir $(pwd)/SOURCES" -bb SPECS/kavis-agent.spec
+rpmbuild --define "_topdir $(pwd)/rpmbuild" --define "_sourcedir $(pwd)/el9/SOURCES" -bb el9/SPECS/kavis-agent.spec
 ```
 
 ## 디렉터리 구조
 
+OS 계열별로 폴더를 분리해뒀다 — 다른 배포판(el8, debian 등) 지원은 같은 패턴으로 폴더만 추가하면 된다.
+
 ```
-SOURCES/   에이전트 스크립트, systemd 유닛, 설정 샘플
-SPECS/     RPM spec 파일
+el9/
+  SOURCES/   에이전트 스크립트, systemd 유닛, 설정 샘플
+  SPECS/     RPM spec 파일
+install.sh   원라이너 설치 스크립트 (OS 감지 → 최신 릴리스 다운로드 → 설치 → 설정 → 활성화)
 ```

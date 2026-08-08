@@ -1,5 +1,5 @@
 Name:           kavis-agent
-Version:        0.2.2
+Version:        0.3.0
 Release:        1%{?dist}
 Summary:        Vulnerability check platform collection agent
 License:        Proprietary
@@ -43,13 +43,14 @@ cat <<'EOF'
 ==============================================================
  kavis-agent가 설치되었습니다.
 
- 1) /etc/kavis-agent/config.ini 를 열어 server_url / token 을 입력하세요.
-    (플랫폼 관리자 페이지 > 자산 상세 > 에이전트 연동 에서 토큰 발급)
- 2) 설정 후 다음 명령으로 활성화하세요:
-      systemctl enable --now kavis-agent.timer
- 3) 즉시 1회 테스트 실행:
-      systemctl start kavis-agent.service
-      journalctl -u kavis-agent.service -n 50
+ 수동 설정:
+   1) vi /etc/kavis-agent/config.ini  (server_url / enroll_key 또는 token)
+   2) systemctl enable --now kavis-agent.timer
+   3) systemctl start kavis-agent.service && journalctl -u kavis-agent.service -n 50
+
+ 또는 비대화형 한 줄로:
+   kavis-agent configure --server-url https://<서버> --enroll-key <키>
+   systemctl enable --now kavis-agent.timer
 ==============================================================
 EOF
 
@@ -60,6 +61,9 @@ EOF
 %systemd_postun_with_restart kavis-agent.timer
 
 %changelog
+* Sat Aug 08 2026 kavis-platform <admin@security.hyunni.com> - 0.3.0-1
+- 'kavis-agent configure' 서브커맨드 추가 (비대화형 config.ini 작성, 프로비저닝 자동화용)
+- install.sh 원라이너 설치 스크립트 추가
 * Sat Aug 08 2026 kavis-platform <admin@security.hyunni.com> - 0.2.2-1
 - 서비스 유닛에 Nice=15, IOSchedulingClass=idle, CPUQuota=25%%, MemoryMax=256M 추가 (운영 서비스와 자원 경합 방지)
 * Sat Aug 08 2026 kavis-platform <admin@security.hyunni.com> - 0.2.1-1
