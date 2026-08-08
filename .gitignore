@@ -1,0 +1,3 @@
+rpmbuild/
+*.rpm
+__pycache__/

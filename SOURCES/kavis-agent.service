@@ -1,0 +1,23 @@
+[Unit]
+Description=Kavis platform collection agent (one-shot run)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/kavis-agent run
+User=root
+# dnf updateinfo가 저장소 메타데이터를 새로 받아야 하는 첫 실행은 오래 걸릴 수 있고,
+# 아래 CPUQuota로 인해 더 늘어질 수 있어 넉넉히 둔다.
+TimeoutStartSec=420
+# 설정 파일 읽기(root-owned) 및 sshd_config 등 시스템 설정 수집을 위해 root로 실행한다.
+# dnf가 /var/cache/dnf에 락/캐시를 쓰므로 ProtectSystem은 full(=/etc,/usr,/boot만 보호)로 둔다.
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+# 운영 서비스와 CPU를 경쟁하지 않도록 우선순위를 낮추고 상한을 건다.
+Nice=15
+IOSchedulingClass=idle
+CPUQuota=25%
+MemoryMax=256M

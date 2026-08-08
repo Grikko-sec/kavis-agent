@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+"""kavis-agent - 취약점 점검 플랫폼 수집 에이전트
+
+서버는 아무것도 판정하지 않는다. 이 에이전트는 정해진 원문(설정 파일,
+패키지 목록, dnf 보안 업데이트 목록 등)만 그대로 수집해 플랫폼의
+/api/agent/ingest.php 로 전송한다. 취약 여부 판정은 전부 서버 쪽
+(parse_rules 테이블)에서 이루어진다 — 판정 기준이 바뀌어도 에이전트를
+재배포할 필요가 없다.
+"""
+import configparser
+import json
+import re
+import socket
+import ssl
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+CONFIG_PATH = "/etc/kavis-agent/config.ini"
+MAX_ITEM_BYTES = 190_000  # 서버 측 200KB 제한보다 여유를 둔다
+TIMEOUT_SECONDS = 20
+
+
+def log(msg: str) -> None:
+    print(f"[kavis-agent] {msg}", file=sys.stderr, flush=True)
+
+
+def read_config() -> dict:
+    cp = configparser.ConfigParser()
+    if not cp.read(CONFIG_PATH):
+        log(f"설정 파일을 읽을 수 없습니다: {CONFIG_PATH}")
+        sys.exit(1)
+    if "agent" not in cp:
+        log("설정 파일에 [agent] 섹션이 없습니다.")
+        sys.exit(1)
+    section = cp["agent"]
+    server_url = section.get("server_url", "").rstrip("/")
+    token = section.get("token", "").strip()
+    enroll_key = section.get("enroll_key", "").strip()
+    if not server_url or (not token and not enroll_key):
+        log("server_url이 비어있거나, token/enroll_key가 둘 다 비어있습니다. "
+            "/etc/kavis-agent/config.ini 를 확인하세요.")
+        sys.exit(1)
+    return {
+        "server_url": server_url,
+        "token": token,
+        "enroll_key": enroll_key,
+        "verify_tls": section.getboolean("verify_tls", fallback=True),
+        "timeout": section.getint("timeout", fallback=TIMEOUT_SECONDS),
+    }
+
+
+def make_ssl_context(url: str, verify_tls: bool):
+    if url.startswith("https://") and not verify_tls:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    return None
+
+
+def enroll(config: dict) -> str:
+    """공용 등록 키로 자산을 자동 등록하고, 발급받은 전용 토큰을 설정 파일에 저장한다."""
+    url = f"{config['server_url']}/api/agent/enroll.php"
+    payload = {"hostname": socket.gethostname()}
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {config['enroll_key']}",
+            "Content-Type": "application/json",
+            "User-Agent": "kavis-agent/0.2.2",
+        },
+    )
+    ctx = make_ssl_context(url, config["verify_tls"])
+    try:
+        with urllib.request.urlopen(req, timeout=config["timeout"], context=ctx) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        log(f"자동 등록 실패 ({e.code}): {e.read().decode('utf-8', errors='replace')}")
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        log(f"자동 등록 연결 실패: {e.reason}")
+        sys.exit(1)
+
+    token = result.get("token", "")
+    if not token:
+        log(f"자동 등록 응답에 토큰이 없습니다: {result}")
+        sys.exit(1)
+
+    save_token(token)
+    log(f"자동 등록 완료 (asset_id={result.get('asset_id')}, "
+        f"{'신규 생성' if result.get('created') else '기존 자산 재사용'}) — 토큰을 설정 파일에 저장했습니다.")
+    return token
+
+
+def save_token(token: str) -> None:
+    """CONFIG_PATH의 token = ... 줄만 교체한다. 없으면 [agent] 섹션 끝에 추가한다."""
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            lines = f.readlines()
+    except OSError as e:
+        log(f"설정 파일을 읽을 수 없어 토큰을 저장하지 못했습니다: {e}")
+        return
+
+    pattern = re.compile(r"^\s*token\s*=.*$")
+    replaced = False
+    for i, line in enumerate(lines):
+        if pattern.match(line):
+            lines[i] = f"token = {token}\n"
+            replaced = True
+            break
+
+    if not replaced:
+        for i, line in enumerate(lines):
+            if line.strip() == "[agent]":
+                lines.insert(i + 1, f"token = {token}\n")
+                replaced = True
+                break
+
+    if not replaced:
+        lines.append(f"\n[agent]\ntoken = {token}\n")
+
+    try:
+        with open(CONFIG_PATH, "w") as f:
+            f.writelines(lines)
+    except OSError as e:
+        log(f"설정 파일에 토큰을 저장하지 못했습니다: {e}")
+
+
+def run_cmd(args: list, timeout: int = 30) -> str:
+    try:
+        result = subprocess.run(
+            args, capture_output=True, text=True, timeout=timeout, check=False,
+            stdin=subprocess.DEVNULL,  # 절대 대화형 프롬프트에서 멈추지 않도록
+        )
+        return result.stdout
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        log(f"명령 실행 실패 ({' '.join(args)}): {e}")
+        return ""
+
+
+def read_file(path: str) -> str:
+    try:
+        with open(path, "r", errors="replace") as f:
+            return f.read()
+    except OSError as e:
+        log(f"파일 읽기 실패 ({path}): {e}")
+        return ""
+
+
+def truncate(text: str) -> str:
+    data = text.encode("utf-8", errors="replace")
+    if len(data) <= MAX_ITEM_BYTES:
+        return text
+    return data[:MAX_ITEM_BYTES].decode("utf-8", errors="ignore")
+
+
+def collect() -> dict:
+    items = {}
+
+    sshd = read_file("/etc/ssh/sshd_config")
+    if sshd:
+        items["sshd_config"] = truncate(sshd)
+
+    os_release = read_file("/etc/os-release")
+    if os_release:
+        items["os_release"] = truncate(os_release)
+
+    packages = run_cmd(["rpm", "-qa", "--qf", "%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n"])
+    if packages:
+        items["packages"] = truncate(packages)
+
+    ports = run_cmd(["ss", "-tlnp"])
+    if ports:
+        items["listening_ports"] = truncate(ports)
+
+    # dnf가 없는 배포판(예: 구형 yum 계열)은 조용히 건너뛴다.
+    # 저장소 메타데이터가 캐시되지 않은 첫 실행은 시간이 오래 걸릴 수 있어 타임아웃을 넉넉히 둔다.
+    dnf_updates = run_cmd(
+        ["dnf", "-y", "-q", "updateinfo", "list", "security", "--installed"], timeout=180
+    )
+    if dnf_updates:
+        items["dnf_security_updates"] = truncate(dnf_updates)
+
+    return {
+        "agent_version": "0.2.2",
+        "hostname": socket.gethostname(),
+        "items": items,
+    }
+
+
+def send(config: dict, payload: dict) -> None:
+    url = f"{config['server_url']}/api/agent/ingest.php"
+    data = json.dumps(payload).encode("utf-8")
+
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {config['token']}",
+            "Content-Type": "application/json",
+            "User-Agent": "kavis-agent/0.2.2",
+        },
+    )
+
+    ctx = make_ssl_context(url, config["verify_tls"])
+
+    try:
+        with urllib.request.urlopen(req, timeout=config["timeout"], context=ctx) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            log(f"전송 성공 ({resp.status}): {body}")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        log(f"서버 응답 오류 ({e.code}): {body}")
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        log(f"연결 실패: {e.reason}")
+        sys.exit(1)
+
+
+def main() -> None:
+    if len(sys.argv) < 2 or sys.argv[1] != "run":
+        print("사용법: kavis-agent run")
+        sys.exit(2)
+
+    config = read_config()
+    if not config["token"]:
+        config["token"] = enroll(config)
+
+    payload = collect()
+    log(f"{len(payload['items'])}개 항목 수집 완료, 전송 중...")
+    send(config, payload)
+
+
+if __name__ == "__main__":
+    main()
