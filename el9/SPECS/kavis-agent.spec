@@ -1,5 +1,5 @@
 Name:           kavis-agent
-Version:        0.6.3
+Version:        0.7.0
 Release:        1%{?dist}
 Summary:        Vulnerability check platform collection agent
 License:        Proprietary
@@ -64,6 +64,15 @@ EOF
 %systemd_postun_with_restart kavis-agent.service
 
 %changelog
+* Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.7.0-1
+- FIM 감시 경로를 관리자 페이지(자산 상세)에서 중앙 관리하도록 변경. 에이전트는 매 전송의
+  ingest.php 응답에 실려오는 fim_watch_dirs를 로컬에 캐시해 다음 사이클부터 반영한다
+  (새 인증 엔드포인트 없이 기존 왕복에 얹음). 서버가 한 번이라도 응답한 뒤로는 그 값이
+  우선이며, config.ini의 [fim] watch_dirs는 서버에 아직 연결 못 한 최초 부트스트랩
+  구간에서만 쓰이는 폴백으로 남는다.
+- depth(1~3) 제한은 관리자 페이지에서 경로별로 지정하며, 서버(ingest.php)가 저장 단계에서
+  그보다 깊은 경로의 이벤트를 걸러낸다. auditd 자체는 여전히 하위 전체를 감시하므로(-w는
+  깊이 제한 불가), 커널 부하 자체를 줄이려면 감시 경로를 좁히는 것이 근본적인 방법이다.
 * Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.6.3-1
 - FIM을 무거운 전체 수집(패키지/dnf/포트/인벤토리, --interval 기본 1시간)에서 분리해 별도
   주기(--fim-interval, 기본 180초)로 확인·전송하도록 데몬 루프를 이중 스케줄러로 재작성.

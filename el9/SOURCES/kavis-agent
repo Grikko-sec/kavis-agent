@@ -35,6 +35,7 @@ DEFAULT_JITTER_SECONDS = 300     # 여러 서버가 한꺼번에 몰리지 않�
 FIM_AUDIT_KEY = "kavis_fim"
 FIM_RULES_PATH = "/etc/audit/rules.d/kavis-agent-fim.rules"
 FIM_CHECKPOINT_PATH = "/etc/kavis-agent/.fim_checkpoint"
+FIM_SERVER_DIRS_PATH = "/etc/kavis-agent/.fim_watch_dirs.json"  # 서버가 내려준 감시 경로 캐시
 FIM_INITIAL_LOOKBACK_SECONDS = 3600  # 체크포인트가 없는 최초 실행 시, 과거 전체가 아니라 최근 1시간만
 DEFAULT_FIM_INTERVAL_SECONDS = 180   # FIM 전용 주기 — 패키지/dnf 등 무거운 전체 수집과 분리 (상용 FIM 제품군의
                                       # 폴링 주기(수 분 단위)와 비슷한 수준. 완전 실시간은 아니지만 근접한 지연)
@@ -89,7 +90,7 @@ def enroll(config: dict) -> str:
         headers={
             "Authorization": f"Bearer {config['enroll_key']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.6.3",
+            "User-Agent": "kavis-agent/0.7.0",
         },
     )
     ctx = make_ssl_context(url, config["verify_tls"])
@@ -218,24 +219,47 @@ def truncate(text: str) -> str:
     return data[:MAX_ITEM_BYTES].decode("utf-8", errors="ignore")
 
 
+def save_fim_watch_dirs(dirs) -> None:
+    """서버(관리자 페이지에서 설정, ingest.php 응답으로 전달)가 내려준 FIM 감시 경로 목록을
+    로컬에 캐시한다. 다음 사이클부터는 이 값이 config.ini의 [fim] watch_dirs보다 우선한다."""
+    if not isinstance(dirs, list):
+        return
+    clean = [d for d in dirs if isinstance(d, str) and d]
+    try:
+        with open(FIM_SERVER_DIRS_PATH, "w") as f:
+            json.dump(clean, f)
+    except OSError as e:
+        log(f"[FIM] 서버 감시 경로 캐시 저장 실패: {e}")
+
+
 def read_fim_watch_dirs() -> list:
-    """config.ini의 [fim] watch_dirs (콤마 구분)를 읽는다. 없거나 비어있으면 FIM 비활성."""
-    cp = configparser.ConfigParser()
-    if not cp.read(CONFIG_PATH) or "fim" not in cp:
-        return []
-    raw = cp["fim"].get("watch_dirs", "").strip()
-    if not raw:
-        return []
-    dirs = []
-    for d in raw.split(","):
-        d = d.strip()
-        if not d:
-            continue
+    """FIM 감시 대상 디렉토리 목록을 가져온다.
+    서버가 한 번이라도 응답을 준 적 있으면(캐시 파일 존재) 그 값이 우선이다 — 서버가 빈 목록을
+    내려준 경우도 그대로 존중한다(더 이상 감시하지 말라는 명시적 신호). 캐시가 아직 없는
+    최초 부트스트랩 구간에서만 config.ini의 [fim] watch_dirs를 폴백으로 쓴다."""
+    dirs = None
+    if os.path.exists(FIM_SERVER_DIRS_PATH):
+        try:
+            cached = json.loads(read_file(FIM_SERVER_DIRS_PATH))
+            if isinstance(cached, list):
+                dirs = [d for d in cached if isinstance(d, str)]
+        except (ValueError, TypeError):
+            dirs = None
+
+    if dirs is None:
+        cp = configparser.ConfigParser()
+        raw = ""
+        if cp.read(CONFIG_PATH) and "fim" in cp:
+            raw = cp["fim"].get("watch_dirs", "").strip()
+        dirs = [d.strip() for d in raw.split(",") if d.strip()] if raw else []
+
+    result = []
+    for d in dirs:
         if not os.path.isdir(d):
             log(f"[FIM] 감시 대상 디렉토리가 없어 건너뜁니다: {d}")
             continue
-        dirs.append(d)
-    return dirs
+        result.append(d)
+    return result
 
 
 def sync_fim_rules(dirs: list) -> bool:
@@ -373,7 +397,7 @@ def collect() -> dict:
         items["fim_events"] = truncate(fim_events)
 
     return {
-        "agent_version": "0.6.3",
+        "agent_version": "0.7.0",
         "hostname": socket.gethostname(),
         "items": items,
         "inventory": collect_inventory(),
@@ -486,7 +510,9 @@ def collect_inventory() -> dict:
     return inv
 
 
-def send(config: dict, payload: dict) -> None:
+def send(config: dict, payload: dict) -> dict:
+    """전송하고, 서버 응답 JSON을 파싱해 돌려준다(예: fim_watch_dirs 반영에 사용).
+    파싱 실패해도 전송 자체는 이미 성공(200)한 것이므로 빈 dict를 반환할 뿐 실패로 취급하지 않는다."""
     url = f"{config['server_url']}/api/agent/ingest.php"
     data = json.dumps(payload).encode("utf-8")
 
@@ -497,7 +523,7 @@ def send(config: dict, payload: dict) -> None:
         headers={
             "Authorization": f"Bearer {config['token']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.6.3",
+            "User-Agent": "kavis-agent/0.7.0",
         },
     )
 
@@ -514,6 +540,14 @@ def send(config: dict, payload: dict) -> None:
     except urllib.error.URLError as e:
         log(f"연결 실패: {e.reason}")
         sys.exit(1)
+
+    try:
+        result = json.loads(body)
+    except (ValueError, TypeError):
+        return {}
+    if "fim_watch_dirs" in result:
+        save_fim_watch_dirs(result["fim_watch_dirs"])
+    return result
 
 
 def cmd_run(_args) -> None:
@@ -535,7 +569,7 @@ def send_fim_only(config: dict) -> None:
     if not fim_events:
         return
     payload = {
-        "agent_version": "0.6.3",
+        "agent_version": "0.7.0",
         "hostname": socket.gethostname(),
         "items": {"fim_events": truncate(fim_events)},
     }
