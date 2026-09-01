@@ -1,5 +1,5 @@
 Name:           kavis-agent
-Version:        0.7.0
+Version:        0.8.0
 Release:        1%{?dist}
 Summary:        Vulnerability check platform collection agent
 License:        Proprietary
@@ -64,6 +64,14 @@ EOF
 %systemd_postun_with_restart kavis-agent.service
 
 %changelog
+* Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.8.0-1
+- FIM CONTENT 이벤트에 SHA-256 해시 검증 추가 (Qualys FIM류 상용 제품과 같은 원리).
+  FIM 이벤트 원문에 등장한 경로들의 현재 해시를 계산해 fim_hashes로 같이 전송하면,
+  서버가 직전 값(fim_file_baseline)과 비교해 판정한다.
+  - 처음 보는 경로는 베이스라인만 세움(BASELINE)
+  - 해시가 그대로면 열기만 하고 실제 내용은 안 바뀐 오탐 — 저장하지 않음
+  - 해시가 다르면 진짜 변경(CHANGED)으로 베이스라인 갱신, 사이트에 "변경 확인됨" 배지 표시
+  판정은 여전히 서버가 한다 — 에이전트는 '지금 이 순간의 해시값'이라는 사실만 전달.
 * Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.7.0-1
 - FIM 감시 경로를 관리자 페이지(자산 상세)에서 중앙 관리하도록 변경. 에이전트는 매 전송의
   ingest.php 응답에 실려오는 fim_watch_dirs를 로컬에 캐시해 다음 사이클부터 반영한다

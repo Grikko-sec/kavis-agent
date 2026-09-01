@@ -9,6 +9,7 @@
 """
 import argparse
 import configparser
+import hashlib
 import json
 import os
 import random
@@ -39,6 +40,7 @@ FIM_SERVER_DIRS_PATH = "/etc/kavis-agent/.fim_watch_dirs.json"  # 서버가 내�
 FIM_INITIAL_LOOKBACK_SECONDS = 3600  # 체크포인트가 없는 최초 실행 시, 과거 전체가 아니라 최근 1시간만
 DEFAULT_FIM_INTERVAL_SECONDS = 180   # FIM 전용 주기 — 패키지/dnf 등 무거운 전체 수집과 분리 (상용 FIM 제품군의
                                       # 폴링 주기(수 분 단위)와 비슷한 수준. 완전 실시간은 아니지만 근접한 지연)
+FIM_HASH_MAX_BYTES = 5 * 1024 * 1024  # 이보다 큰 파일은 해시하지 않는다(매 주기 큰 파일 통째로 읽는 부하 방지)
 
 
 def log(msg: str) -> None:
@@ -90,7 +92,7 @@ def enroll(config: dict) -> str:
         headers={
             "Authorization": f"Bearer {config['enroll_key']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.7.0",
+            "User-Agent": "kavis-agent/0.8.0",
         },
     )
     ctx = make_ssl_context(url, config["verify_tls"])
@@ -329,6 +331,30 @@ def collect_fim_events() -> str:
     return raw
 
 
+def compute_fim_hashes(raw_events: str) -> dict:
+    """FIM 이벤트 원문에 등장한 파일 경로들의 '지금 이 순간' SHA-256을 계산해 넘긴다.
+    판정(직전 값과 비교해서 진짜 바뀐 건지)은 서버가 한다 — 원칙 그대로 에이전트는 사실(현재
+    해시값)만 전달하고, 노이즈 억제를 위한 비교·판단은 서버의 베이스라인 테이블이 담당한다."""
+    paths = set()
+    for m in re.finditer(r'\bname=("([^"]*)"|(/\S*))', raw_events):
+        val = m.group(2) if m.group(2) is not None else m.group(3)
+        if val and val.startswith("/"):
+            paths.add(val)
+
+    hashes = {}
+    for p in paths:
+        try:
+            if not os.path.isfile(p) or os.path.getsize(p) > FIM_HASH_MAX_BYTES:
+                continue
+            h = hashlib.sha256()
+            with open(p, "rb") as f:
+                h.update(f.read())
+            hashes[p] = h.hexdigest()
+        except OSError:
+            continue  # 그 사이 삭제됐거나 권한 문제 — 이번 파일만 건너뜀
+    return hashes
+
+
 def commit_fim_checkpoint() -> None:
     """전송이 실제로 성공했을 때만 호출 — 실패하면 다음 주기가 같은 구간을 다시 조회한다."""
     global _fim_checkpoint_pending
@@ -393,14 +419,17 @@ def collect() -> dict:
         items["dnf_security_updates"] = truncate(dnf_updates)
 
     fim_events = collect_fim_events()
+    fim_hashes = {}
     if fim_events:
         items["fim_events"] = truncate(fim_events)
+        fim_hashes = compute_fim_hashes(fim_events)
 
     return {
-        "agent_version": "0.7.0",
+        "agent_version": "0.8.0",
         "hostname": socket.gethostname(),
         "items": items,
         "inventory": collect_inventory(),
+        "fim_hashes": fim_hashes,
     }
 
 
@@ -523,7 +552,7 @@ def send(config: dict, payload: dict) -> dict:
         headers={
             "Authorization": f"Bearer {config['token']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.7.0",
+            "User-Agent": "kavis-agent/0.8.0",
         },
     )
 
@@ -569,9 +598,10 @@ def send_fim_only(config: dict) -> None:
     if not fim_events:
         return
     payload = {
-        "agent_version": "0.7.0",
+        "agent_version": "0.8.0",
         "hostname": socket.gethostname(),
         "items": {"fim_events": truncate(fim_events)},
+        "fim_hashes": compute_fim_hashes(fim_events),
     }
     log("[FIM] 새 이벤트 감지, 전송 중...")
     send(config, payload)
