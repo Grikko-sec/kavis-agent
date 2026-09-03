@@ -1,5 +1,5 @@
 Name:           kavis-agent
-Version:        0.8.1
+Version:        0.8.2
 Release:        1%{?dist}
 Summary:        Vulnerability check platform collection agent
 License:        Proprietary
@@ -64,6 +64,10 @@ EOF
 %systemd_postun_with_restart kavis-agent.service
 
 %changelog
+* Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.8.2-1
+- 인터페이스별 넷마스크(CIDR 표기, IP에 /24처럼 붙임)와 게이트웨이(ip route의 dev로 매칭)를
+  network_interfaces에 같이 담아 전송. 자산 상세 페이지 인터페이스 테이블에 IP(넷마스크)와
+  게이트웨이 컬럼으로 표시 — 기존에 따로 있던 요약용 게이트웨이 필드는 제거.
 * Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.8.1-1
 - 인벤토리에 기본 게이트웨이(IPv4) 수집 추가 — `ip -j route show default` 파싱, 자산 상세
   페이지 네트워크 섹션에 표시.
