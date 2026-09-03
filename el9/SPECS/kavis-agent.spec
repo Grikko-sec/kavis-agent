@@ -1,5 +1,5 @@
 Name:           kavis-agent
-Version:        0.8.0
+Version:        0.8.1
 Release:        1%{?dist}
 Summary:        Vulnerability check platform collection agent
 License:        Proprietary
@@ -64,6 +64,9 @@ EOF
 %systemd_postun_with_restart kavis-agent.service
 
 %changelog
+* Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.8.1-1
+- 인벤토리에 기본 게이트웨이(IPv4) 수집 추가 — `ip -j route show default` 파싱, 자산 상세
+  페이지 네트워크 섹션에 표시.
 * Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.8.0-1
 - FIM CONTENT 이벤트에 SHA-256 해시 검증 추가 (Qualys FIM류 상용 제품과 같은 원리).
   FIM 이벤트 원문에 등장한 경로들의 현재 해시를 계산해 fim_hashes로 같이 전송하면,

@@ -92,7 +92,7 @@ def enroll(config: dict) -> str:
         headers={
             "Authorization": f"Bearer {config['enroll_key']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.8.0",
+            "User-Agent": "kavis-agent/0.8.1",
         },
     )
     ctx = make_ssl_context(url, config["verify_tls"])
@@ -425,7 +425,7 @@ def collect() -> dict:
         fim_hashes = compute_fim_hashes(fim_events)
 
     return {
-        "agent_version": "0.8.0",
+        "agent_version": "0.8.1",
         "hostname": socket.gethostname(),
         "items": items,
         "inventory": collect_inventory(),
@@ -465,6 +465,17 @@ def collect_inventory() -> dict:
     inv["network_interfaces"] = ifaces
     inv["ip_addresses"] = all_ips
     inv["mac_addresses"] = all_macs
+
+    gateway = None
+    route_json = run_cmd(["ip", "-j", "route", "show", "default"])
+    if route_json:
+        try:
+            routes = json.loads(route_json)
+            if routes:
+                gateway = routes[0].get("gateway")  # 메트릭 낮은(우선순위 높은) 기본 경로가 먼저 옴
+        except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
+            pass
+    inv["gateway"] = gateway
 
     dns_servers, domain = [], None
     for line in read_file("/etc/resolv.conf").splitlines():
@@ -552,7 +563,7 @@ def send(config: dict, payload: dict) -> dict:
         headers={
             "Authorization": f"Bearer {config['token']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.8.0",
+            "User-Agent": "kavis-agent/0.8.1",
         },
     )
 
@@ -598,7 +609,7 @@ def send_fim_only(config: dict) -> None:
     if not fim_events:
         return
     payload = {
-        "agent_version": "0.8.0",
+        "agent_version": "0.8.1",
         "hostname": socket.gethostname(),
         "items": {"fim_events": truncate(fim_events)},
         "fim_hashes": compute_fim_hashes(fim_events),
