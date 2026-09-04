@@ -26,7 +26,7 @@ import random
 import urllib.error
 import urllib.request
 
-AGENT_VERSION = "0.1.0"
+AGENT_VERSION = "0.1.1"
 CONFIG_PATH = os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"), "kavis-agent", "config.ini")
 MAX_ITEM_BYTES = 190_000  # 서버 측 200KB 제한보다 여유를 둔다
 TIMEOUT_SECONDS = 20
@@ -267,10 +267,21 @@ $rdp = [ordered]@{
     security_layer   = (Try-Get { (Get-ItemProperty $rdpTcpKey -ErrorAction Stop).SecurityLayer })
 }
 
+function Test-UnquotedServicePath {
+    # 진짜 취약 조건: exe "이전" 경로(디렉터리+파일명)에 공백이 있고 따옴표로 안 감싼 경우.
+    # svchost.exe 등은 뒤에 "-k netsvcs -p" 같은 인자가 붙어 PathName 전체엔 공백이 있지만,
+    # 그건 인자 구분 공백이지 실행파일 경로의 공백이 아니므로 취약이 아니다 — exe 앞부분만 잘라서 검사.
+    param($path)
+    if (-not $path) { return $false }
+    if ($path -match '^\s*"') { return $false }
+    if ($path -match '^([A-Za-z]:\\[^"]*?\.exe)') {
+        return $matches[1] -match ' '
+    }
+    return $false
+}
 $unquotedSvc = Try-Get {
-    @(Get-CimInstance Win32_Service | Where-Object {
-        $_.PathName -and $_.PathName -notmatch '^\s*"' -and $_.PathName -match ' '
-    } | Select-Object Name,PathName,StartMode,StartName) | ConvertTo-Json -Compress -Depth 3
+    @(Get-CimInstance Win32_Service | Where-Object { Test-UnquotedServicePath $_.PathName } |
+      Select-Object Name,PathName,StartMode,StartName) | ConvertTo-Json -Compress -Depth 3
 }
 
 $result = [ordered]@{
