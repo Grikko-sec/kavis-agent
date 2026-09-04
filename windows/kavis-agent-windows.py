@@ -150,10 +150,18 @@ def enroll(config: dict) -> str:
 
 
 def cmd_configure(args) -> None:
-    """비대화형으로 config.ini를 작성한다. 각 값은 --플래그 또는 KAVIS_* 환경변수로 줄 수 있다."""
-    server_url = args.server_url or os.environ.get("KAVIS_SERVER_URL", "")
-    enroll_key = args.enroll_key or os.environ.get("KAVIS_ENROLL_KEY", "")
-    token = args.token or os.environ.get("KAVIS_TOKEN", "")
+    """비대화형으로 config.ini를 작성한다. 각 값은 --플래그 또는 KAVIS_* 환경변수로 줄 수 있다.
+    기존 파일에 이미 값이 있는데 이번 실행에 해당 플래그를 안 줬으면, 그 값을 지우지 않고
+    그대로 둔다 — 예: 최초엔 --enroll-key로 등록하고, 나중엔 --token만으로 재설정할 때
+    직전에 저장된 값이 빈 문자열로 덮어써지는 일이 없도록."""
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    cp = configparser.ConfigParser()
+    cp.read(CONFIG_PATH)
+    existing = dict(cp["agent"]) if "agent" in cp else {}
+
+    server_url = args.server_url or os.environ.get("KAVIS_SERVER_URL", "") or existing.get("server_url", "")
+    enroll_key = args.enroll_key or os.environ.get("KAVIS_ENROLL_KEY", "") or existing.get("enroll_key", "")
+    token = args.token or os.environ.get("KAVIS_TOKEN", "") or existing.get("token", "")
     verify_tls = "true" if args.verify_tls else "false"
 
     if not server_url:
@@ -163,9 +171,6 @@ def cmd_configure(args) -> None:
         log("--enroll-key 또는 --token (혹은 해당 환경변수) 중 하나는 필요합니다.")
         sys.exit(2)
 
-    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-    cp = configparser.ConfigParser()
-    cp.read(CONFIG_PATH)
     cp["agent"] = {
         "server_url": server_url.rstrip("/"),
         "enroll_key": enroll_key,
@@ -179,7 +184,8 @@ def cmd_configure(args) -> None:
     except OSError as e:
         log(f"설정 파일을 쓰지 못했습니다: {e}")
         sys.exit(1)
-    log(f"{CONFIG_PATH} 작성 완료.")
+    log(f"{CONFIG_PATH} 작성 완료. (token={'설정됨' if token else '없음'}, "
+        f"enroll_key={'설정됨' if enroll_key else '없음'})")
 
 
 # ── PowerShell 기반 수집 ────────────────────────────────
