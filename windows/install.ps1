@@ -11,6 +11,12 @@ if (-not (Test-Path $exeSource)) {
     throw "먼저 .\build.ps1 을 실행해서 $exeSource 를 만드세요."
 }
 
+Write-Host "== 기존 예약 작업 중지 (실행 중이면 exe 파일이 잠겨서 덮어쓰기 전에 꺼야 함) ==" -ForegroundColor Cyan
+Stop-ScheduledTask -TaskName 'KavisAgent' -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+Get-Process -Name 'kavis-agent-windows' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+
 Write-Host "== 설치 폴더 준비: $installDir ==" -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 Copy-Item $exeSource "$installDir\kavis-agent-windows.exe" -Force
