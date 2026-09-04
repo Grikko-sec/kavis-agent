@@ -27,15 +27,26 @@ Windows 감사 이벤트 로그 형식이 실제 서버에서 어떻게 나오�
 
 리눅스판(auditd)과 같은 원리를 Windows 감사 서브시스템으로 구현했다:
 
-1. `auditpol /set /subcategory:"File System" /success:enable` — 파일 시스템 개체
-   액세스 감사를 켠다.
-2. 서버(관리자 페이지, 자산 상세 FIM 탭)가 지정한 감시 경로마다 SACL(감사용 ACL)을
+1. `auditpol /set /subcategory:{GUID} /success:enable` — 파일 시스템 개체 액세스
+   감사를 켠다. 서브카테고리는 영문 이름("File System")이 아니라 로케일 무관
+   고정 GUID(`{0CCE921D-69AE-11D9-BED3-505054503030}`)로 지정한다 — 실제
+   한국어 Windows에서 영문 이름을 안 받아서(0x00000057 오류) GUID로 바꿈.
+2. `HKLM\SYSTEM\CurrentControlSet\Control\Lsa\SCENoApplyLegacyAuditPolicy`를
+   `1`로 설정한다. 이 값이 없으면 위에서 켠 세부(서브카테고리) 감사 정책을
+   Windows가 무시하고 예전 방식(카테고리 단위, 기본 꺼짐)을 우선시해서 SACL을
+   걸어도 이벤트가 하나도 안 남는다 — 실기 확인된 문제, Microsoft도 세부 감사
+   정책 사용 시 이 값을 켜도록 공식 권장한다.
+3. 서버(관리자 페이지, 자산 상세 FIM 탭)가 지정한 감시 경로마다 SACL(감사용 ACL)을
    건다 — `Everyone` 계정의 생성/삭제/내용변경/권한변경 관련 액세스를 `Success`
    기준으로 감사하도록. 이미 걸려있으면 다시 안 건다(idempotent).
-3. 이후 그 경로에서 파일이 생성/삭제/수정/권한변경되면 보안 이벤트 로그에
+4. 이후 그 경로에서 파일이 생성/삭제/수정/권한변경되면 보안 이벤트 로그에
    **4663**(개체 액세스 시도)/**4670**(권한 변경) 이벤트가 쌓인다.
-4. 에이전트는 `Get-WinEvent`로 마지막 체크포인트 이후 이벤트를 가져와 원시 필드
+5. 에이전트는 `Get-WinEvent`로 마지막 체크포인트 이후 이벤트를 가져와 원시 필드
    (`ObjectName`, `AccessMask` 16진수, 이벤트 ID, 계정명)만 그대로 서버에 보낸다.
+
+윈도우는 리눅스(auditd)와 달리 감사를 켜면 우리가 지정 안 한 경로(윈도우 자체
+서비싱 작업 등)의 이벤트도 같이 들어올 수 있어서, 서버는 설정된 감시 범위 밖
+이벤트를 리눅스와 반대로 **버린다**(리눅스는 범위 밖이면 안전하게 유지).
 
 **분류(CREATE/DELETE/CONTENT/SECURITY)는 에이전트가 아니라 서버가 한다** —
 `AccessMask` 비트를 해석해서: DELETE 비트 → DELETE, WRITE_DAC/WRITE_OWNER 비트나
