@@ -1,0 +1,48 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- UpgradeCode는 절대 바꾸지 않는다 — 이 값이 같아야 다음 버전 MSI가 "업그레이드"로
+       인식되어 기존 설치를 자동 제거하고 새 파일로 교체한다(RPM의 rpm -Uvh와 같은 동작).
+       Version만 매 릴리스마다 올린다. -->
+  <Package Name="Kavis Agent" Manufacturer="Kavis"
+           Version="0.1.0.0"
+           UpgradeCode="B3B3E3A0-6E2A-4C7B-9E9C-3B6B1D1B7A2A">
+
+    <MajorUpgrade DowngradeErrorMessage="이미 더 최신 버전의 Kavis Agent가 설치되어 있습니다." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Kavis Agent">
+        <Component Id="MainExe" Guid="*">
+          <File Id="AgentExe" Source="dist\kavis-agent-windows.exe" KeyPath="yes" />
+        </Component>
+        <Component Id="RegisterTaskScript" Guid="*">
+          <File Id="RegisterPs1" Source="register-task.ps1" />
+        </Component>
+        <Component Id="UnregisterTaskScript" Guid="*">
+          <File Id="UnregisterPs1" Source="unregister-task.ps1" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="Kavis Agent" Level="1">
+      <ComponentRef Id="MainExe" />
+      <ComponentRef Id="RegisterTaskScript" />
+      <ComponentRef Id="UnregisterTaskScript" />
+    </Feature>
+
+    <!-- 설치 후: 예약 작업(부팅 시 SYSTEM으로 시작, 실패 시 자동 재시작) 등록.
+         제거 시: 그 예약 작업만 삭제 — config.ini는 건드리지 않는다. -->
+    <CustomAction Id="RegisterTask"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]register-task.ps1&quot;"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="UnregisterTask"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]unregister-task.ps1&quot;"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="RegisterTask" After="InstallFiles" Condition="NOT Installed" />
+      <Custom Action="UnregisterTask" Before="RemoveFiles" Condition='(REMOVE="ALL") AND (NOT UPGRADINGPRODUCTCODE)' />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>
