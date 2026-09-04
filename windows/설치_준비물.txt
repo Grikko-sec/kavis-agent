@@ -1,16 +1,11 @@
-Kavis 윈도우 에이전트 빌드 - 준비물 체크리스트
-=================================================
+Kavis 윈도우 에이전트 빌드 - 준비물 체크리스트 (exe 방식, Qualys와 동일)
+=========================================================================
 
 [설치할 프로그램] (윈도우 PC/서버에)
 
-1) Python 3.11 이상
+Python 3.11 이상 - 이것 하나만 있으면 됩니다.
    - 다운로드: https://python.org/downloads
    - 설치 화면에서 "Add python.exe to PATH" 반드시 체크
-
-2) .NET 8 SDK
-   - 다운로드: https://dotnet.microsoft.com/download
-   - MSI 설치 파일(kavis-agent-windows-installer.msi)을 만드는 WiX 도구가
-     이 위에서 동작함
 
 
 [소스 파일 받는 방법]
@@ -28,13 +23,14 @@ git이 없으면:
 
    .\build.ps1
 
-   -> 같은 폴더에 kavis-agent-windows-installer.msi 생성됨
-      (이게 RPM 파일에 해당하는 설치 패키지)
+   -> dist\kavis-agent-windows.exe 생성됨
 
 
-[설치]
+[설치 + 예약 작업 등록]
 
-   msiexec /i kavis-agent-windows-installer.msi /quiet
+   .\install.ps1
+
+   -> C:\Program Files\Kavis Agent\ 로 설치, 부팅 시 자동 시작 등록
 
 
 [등록 - 최초 1회, 관리자 PowerShell]
@@ -48,7 +44,12 @@ git이 없으면:
    Restart-ScheduledTask -TaskName KavisAgent
 
 
+[제거]
+
+   .\uninstall.ps1
+
+
 [참고]
-- 자세한 설명/문제 해결/제거 방법: windows\README.md
-- build.ps1 이나 wix build 단계에서 오류 나면 그 메시지 그대로 알려주면
+- 자세한 설명/문제 해결: windows\README.md
+- build.ps1 이나 install.ps1 단계에서 오류 나면 그 메시지 그대로 알려주면
   바로 고쳐드립니다 (리눅스에서는 빌드 검증을 못 해봤음)

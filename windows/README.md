@@ -1,9 +1,9 @@
 # kavis-agent-windows (v0.1.0 — 첫 버전)
 
 리눅스판(`kavis-agent`)과 같은 설계 원칙: 에이전트는 판정하지 않고 원문만 수집해
-서버(`/api/agent/ingest.php`)로 보낸다. **이 리눅스 서버에서는 exe/MSI를 빌드할 수
-없다** — PyInstaller는 크로스 컴파일이 안 되고, MSI 빌드 도구(WiX)도 리눅스에서는
-"동작 미정의"라 실제로 깨진다(테스트 완료). 반드시 실제 윈도우 PC/서버에서 빌드한다.
+서버(`/api/agent/ingest.php`)로 보낸다. Qualys 등 상용 에이전트와 같은 방식으로
+**exe 하나로 배포**한다(MSI 없음). **이 리눅스 서버에서는 exe를 빌드할 수 없다**
+— PyInstaller는 크로스 컴파일이 안 된다. 반드시 실제 윈도우 PC/서버에서 빌드한다.
 
 ## v0.1.0 범위
 
@@ -15,21 +15,17 @@
 아직 없음(리눅스판에서 검증 후 다음 버전에 추가 예정): FIM, 로그온 이력 기반
 이상탐지, 원격 작업(방화벽 on/off, IP 차단). 서버 쪽에도 이 원문들을 해석할
 KISA류 판정 규칙(parse_rules)이 아직 없어서, 지금 보내는 원문 항목들은 DB에
-저장은 되지만 화면/체크리스트에는 아직 안 뜬다 — exe/MSI 파이프라인이 실제로
-동작하는지 먼저 확인한 뒤에 서버 쪽을 이어서 붙일 계획이다.
+저장은 되지만 화면/체크리스트에는 아직 안 뜬다.
 
-**중요**: 이 폴더의 `.wxs`/`.ps1`은 리눅스에서 문법만 작성한 것이라 실제 빌드로
-검증하지 못했다. 아래 절차대로 진행하다 오류가 나면(특히 `wix build` 단계)
-**오류 메시지를 그대로 알려달라** — 리눅스 에이전트 개발 때도 실제 서버에서 나온
-오류를 보고 고친 경우가 많았다(예: FIM 타임스탬프 인자 버그, sshd-session 정규식
-버그). 이번에도 같은 방식으로 갈 가능성이 높다.
+**중요**: 이 폴더의 스크립트는 리눅스에서 문법만 작성한 것이라 실제 빌드로
+검증하지 못했다. 진행하다 오류가 나면 **메시지를 그대로 알려달라** — 리눅스
+에이전트 개발 때도 실제 서버에서 나온 오류를 보고 고친 경우가 많았다.
 
 ## 사전 준비물 (윈도우 PC/서버에)
 
-1. **Python 3.11+** — https://python.org/downloads
-   설치 시 **"Add python.exe to PATH"** 체크
-2. **.NET 8 SDK** — https://dotnet.microsoft.com/download
-   (MSI 빌드 도구 WiX가 이 위에서 동작)
+**Python 3.11 이상만 있으면 된다.**
+- https://python.org/downloads
+- 설치 시 **"Add python.exe to PATH"** 체크
 
 ## 빌드
 
@@ -41,53 +37,35 @@ cd C:\경로\windows
 .\build.ps1
 ```
 
-`build.ps1`이 하는 일:
-1. `pip install pyinstaller` (없으면)
-2. `pyinstaller --onefile --console --name kavis-agent-windows kavis-agent-windows.py`
-   → `dist\kavis-agent-windows.exe` 생성
-3. `dotnet tool install --global wix --version 5.0.2` (없으면)
-4. `wix build kavis-agent.wxs -o kavis-agent-windows-installer.msi`
-   → 같은 폴더에 설치 파일 생성
+`pip install pyinstaller`(없으면) → `pyinstaller --onefile` 로
+`dist\kavis-agent-windows.exe` 하나를 만든다.
 
-완료되면 `kavis-agent-windows-installer.msi` 하나가 나온다 — 이게 RPM 파일에
-해당하는 배포 단위다.
-
-## 설치
+## 설치 + 등록
 
 ```powershell
-msiexec /i kavis-agent-windows-installer.msi /quiet
+.\install.ps1
 ```
 
-(`/quiet` 빼면 설치 마법사가 뜬다.) 설치되는 것:
-- `C:\Program Files\Kavis Agent\kavis-agent-windows.exe`
-- 예약 작업 `KavisAgent` (부팅 시 SYSTEM 권한으로 시작, 죽으면 1분 뒤 재시작 — 최대
-  999회. systemd의 `Restart=always`에 대응)
+하는 일:
+- `dist\kavis-agent-windows.exe`를 `C:\Program Files\Kavis Agent\`로 복사
+- 예약 작업 `KavisAgent` 등록 (부팅 시 SYSTEM 권한으로 시작, 죽으면 1분 뒤
+  재시작 — 최대 999회. systemd의 `Restart=always`에 대응)
 
 설치 직후엔 아직 `server_url`/토큰이 없어서 예약 작업이 실행돼도 바로 실패한다 —
-다음 단계로 등록해야 한다.
-
-## 등록 (최초 1회)
-
-관리자 PowerShell에서:
+이어서 등록해야 한다(최초 1회):
 
 ```powershell
 cd "C:\Program Files\Kavis Agent"
 .\kavis-agent-windows.exe configure --server-url https://<서버> --enroll-key <관리자 페이지에서 발급한 등록 키>
-```
-
-그리고 실제로 잘 되는지 **수동으로 한 번 먼저 확인**(예약 작업 로그는 따로 안
-남으므로, 문제가 있으면 이 단계에서 바로 보인다):
-
-```powershell
 .\kavis-agent-windows.exe collect
 ```
 
-`전송 성공 (200): ...` 이 보이면 정상. Kavis 웹의 자산 목록에 새 자산(호스트명)이
-자동 등록되어 있을 것이다. 이후 예약 작업을 재시작해 상시 수집을 시작:
+`전송 성공 (200): ...` 이 보이면 정상 — 수동 실행이라 결과가 바로 눈에 보인다.
+Kavis 웹의 자산 목록에 새 자산(호스트명)이 자동 등록되어 있을 것이다. 이후
+예약 작업을 재시작해 상시 수집을 시작:
 
 ```powershell
 Restart-ScheduledTask -TaskName KavisAgent
-# 또는: Stop-ScheduledTask -TaskName KavisAgent; Start-ScheduledTask -TaskName KavisAgent
 ```
 
 ## 상태 확인
@@ -102,19 +80,18 @@ Get-ScheduledTask -TaskName KavisAgent | Get-ScheduledTaskInfo
 
 ## 업그레이드
 
-새 버전 MSI를 그냥 다시 `msiexec /i`로 설치하면 된다 — `UpgradeCode`가 고정돼
-있어서 기존 설치를 자동으로 지우고 새 파일로 교체한다(RPM 업그레이드와 같은
-방식). `%ProgramData%\kavis-agent\config.ini`(토큰 포함)는 MSI 패키지에 포함된
-파일이 아니라서 그대로 보존된다.
+새 `kavis-agent-windows.exe`를 빌드한 뒤 `.\install.ps1`을 다시 실행하면 된다 —
+기존 파일을 덮어쓰고 예약 작업을 재등록한다. `%ProgramData%\kavis-agent\config.ini`
+(토큰 포함)는 install.ps1이 건드리지 않는 위치라 그대로 보존된다.
 
 ## 제거
 
 ```powershell
-msiexec /x kavis-agent-windows-installer.msi /quiet
+.\uninstall.ps1
 ```
 
 예약 작업과 설치 파일만 지운다. `%ProgramData%\kavis-agent\config.ini`는 남는다 —
-완전히 지우려면 그 폴더를 수동으로 삭제.
+완전히 지우려면 `uninstall.ps1`이 알려주는 명령을 추가로 실행.
 
 ## 알려진 제약 / TODO
 
