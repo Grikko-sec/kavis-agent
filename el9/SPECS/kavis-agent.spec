@@ -1,5 +1,5 @@
 Name:           kavis-agent
-Version:        0.8.3
+Version:        0.9.0
 Release:        1%{?dist}
 Summary:        Vulnerability check platform collection agent
 License:        Proprietary
@@ -64,6 +64,15 @@ EOF
 %systemd_postun_with_restart kavis-agent.service
 
 %changelog
+* Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.9.0-1
+- SSH 접속 이력 수집 추가. /var/log/secure의 sshd 인증 관련 줄을 마지막으로 읽은 지점
+  (inode+offset, FIM 체크포인트와 같은 방식) 이후만 원문으로 전송 — 로그 로테이션 감지 시
+  처음부터 다시 읽음.
+- 서버(ingest.php)가 원문을 성공/실패, 계정, IP, 포트, 인증방식으로 분류해 저장하고,
+  흔한 위험 신호는 저장 단계에서 바로 표시: root 계정 직접 로그인, 의심 계정명(admin/
+  test/oracle 등) 시도, 브루트포스 패턴(동일 IP에서 10분 내 5회 이상 실패).
+- 자산 상세 페이지에 "SSH 접속 이력" 패널 추가 (계정/IP 검색, 성공/실패 필터, 페이지네이션,
+  위험 신호 배지).
 * Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.8.3-1
 - 버그 수정: 'kavis-agent configure'가 [agent] 섹션만 쓰고 [fim]은 안 만들어서
   README/config.ini.sample의 예시와 실제 결과물이 다르던 문제 수정. 이제 [fim]이

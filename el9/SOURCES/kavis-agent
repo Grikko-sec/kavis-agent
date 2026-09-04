@@ -42,6 +42,15 @@ DEFAULT_FIM_INTERVAL_SECONDS = 180   # FIM 전용 주기 — 패키지/dnf 등 �
                                       # 폴링 주기(수 분 단위)와 비슷한 수준. 완전 실시간은 아니지만 근접한 지연)
 FIM_HASH_MAX_BYTES = 5 * 1024 * 1024  # 이보다 큰 파일은 해시하지 않는다(매 주기 큰 파일 통째로 읽는 부하 방지)
 
+# ── SSH 접속 이력 ──────────────────────────────────────
+# /var/log/secure(RHEL 계열 sshd 인증 로그)를 매번 통째로 보내지 않고, 마지막으로 읽은
+# 지점(inode+offset) 이후 새로 쌓인 줄만 보낸다 — FIM 체크포인트와 같은 원리.
+SSH_LOG_PATH = "/var/log/secure"
+SSH_LOG_STATE_PATH = "/etc/kavis-agent/.ssh_log_state.json"
+SSH_LOG_LINE_RE = re.compile(
+    r"sshd\[\d+\]:\s+(Accepted|Failed password|Failed publickey|Invalid user)"
+)
+
 
 def log(msg: str) -> None:
     print(f"[kavis-agent] {msg}", file=sys.stderr, flush=True)
@@ -92,7 +101,7 @@ def enroll(config: dict) -> str:
         headers={
             "Authorization": f"Bearer {config['enroll_key']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.8.3",
+            "User-Agent": "kavis-agent/0.9.0",
         },
     )
     ctx = make_ssl_context(url, config["verify_tls"])
@@ -365,6 +374,61 @@ def commit_fim_checkpoint() -> None:
         _fim_checkpoint_pending = None
 
 
+_ssh_state_pending = None  # collect_ssh_events()에서 읽어들인 새 위치 — send() 성공 후에만 커밋
+
+
+def collect_ssh_events() -> str:
+    """/var/log/secure에서 마지막으로 읽은 지점 이후의 sshd 인증 관련 줄만 원문으로 가져온다.
+    로그 로테이션(inode 변경 또는 파일이 이전 위치보다 작아짐)이 감지되면 처음부터 다시 읽는다.
+    판정(성공/실패, 계정·IP 추출, 위험 신호)은 전부 서버가 한다."""
+    global _ssh_state_pending
+
+    try:
+        st = os.stat(SSH_LOG_PATH)
+    except OSError:
+        return ""  # 이 로그가 없는 배포판/설정 — 조용히 건너뜀
+
+    state = {"inode": None, "offset": 0}
+    if os.path.exists(SSH_LOG_STATE_PATH):
+        try:
+            loaded = json.loads(read_file(SSH_LOG_STATE_PATH))
+            if isinstance(loaded, dict):
+                state = loaded
+        except (ValueError, TypeError):
+            pass
+
+    offset = state.get("offset") or 0
+    if state.get("inode") != st.st_ino or offset > st.st_size:
+        offset = 0  # 로테이션됐거나 처음 보는 파일 — 전체를 새로 읽되 이번 한 번뿐이라 부담 없음
+
+    lines = []
+    try:
+        with open(SSH_LOG_PATH, "r", errors="replace") as f:
+            f.seek(offset)
+            for line in f:
+                if SSH_LOG_LINE_RE.search(line):
+                    lines.append(line.rstrip("\n"))
+            new_offset = f.tell()
+    except OSError as e:
+        log(f"[SSH] 로그 읽기 실패: {e}")
+        return ""
+
+    _ssh_state_pending = {"inode": st.st_ino, "offset": new_offset}
+    return truncate("\n".join(lines))
+
+
+def commit_ssh_state() -> None:
+    """전송이 실제로 성공했을 때만 호출 — 실패하면 다음 주기가 같은 구간을 다시 읽는다."""
+    global _ssh_state_pending
+    if _ssh_state_pending is not None:
+        try:
+            with open(SSH_LOG_STATE_PATH, "w") as f:
+                json.dump(_ssh_state_pending, f)
+        except OSError as e:
+            log(f"[SSH] 상태 저장 실패: {e}")
+        _ssh_state_pending = None
+
+
 def collect() -> dict:
     items = {}
 
@@ -426,8 +490,12 @@ def collect() -> dict:
         items["fim_events"] = truncate(fim_events)
         fim_hashes = compute_fim_hashes(fim_events)
 
+    ssh_events = collect_ssh_events()
+    if ssh_events:
+        items["ssh_auth_log"] = ssh_events
+
     return {
-        "agent_version": "0.8.3",
+        "agent_version": "0.9.0",
         "hostname": socket.gethostname(),
         "items": items,
         "inventory": collect_inventory(),
@@ -578,7 +646,7 @@ def send(config: dict, payload: dict) -> dict:
         headers={
             "Authorization": f"Bearer {config['token']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.8.3",
+            "User-Agent": "kavis-agent/0.9.0",
         },
     )
 
@@ -615,6 +683,7 @@ def cmd_run(_args) -> None:
     log(f"{len(payload['items'])}개 항목 수집 완료, 전송 중...")
     send(config, payload)
     commit_fim_checkpoint()
+    commit_ssh_state()
 
 
 def send_fim_only(config: dict) -> None:
@@ -624,7 +693,7 @@ def send_fim_only(config: dict) -> None:
     if not fim_events:
         return
     payload = {
-        "agent_version": "0.8.3",
+        "agent_version": "0.9.0",
         "hostname": socket.gethostname(),
         "items": {"fim_events": truncate(fim_events)},
         "fim_hashes": compute_fim_hashes(fim_events),
@@ -668,6 +737,7 @@ def cmd_daemon(args) -> None:
                 log(f"{len(payload['items'])}개 항목 수집 완료, 전송 중...")
                 send(config, payload)
                 commit_fim_checkpoint()
+                commit_ssh_state()
                 next_full = now + args.interval + random.randint(0, max(args.jitter, 0))
                 next_fim = now + args.fim_interval
             elif now >= next_fim:
