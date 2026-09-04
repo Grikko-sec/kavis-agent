@@ -92,7 +92,7 @@ def enroll(config: dict) -> str:
         headers={
             "Authorization": f"Bearer {config['enroll_key']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.8.2",
+            "User-Agent": "kavis-agent/0.8.3",
         },
     )
     ctx = make_ssl_context(url, config["verify_tls"])
@@ -181,6 +181,8 @@ def cmd_configure(args) -> None:
         "verify_tls": verify_tls,
         "timeout": str(args.timeout),
     }
+    if "fim" not in cp:  # README/config.ini.sample과 실제 결과물이 다르지 않도록 빈 자리를 만들어둔다
+        cp["fim"] = {"watch_dirs": ""}
 
     try:
         with open(CONFIG_PATH, "w") as f:
@@ -425,7 +427,7 @@ def collect() -> dict:
         fim_hashes = compute_fim_hashes(fim_events)
 
     return {
-        "agent_version": "0.8.2",
+        "agent_version": "0.8.3",
         "hostname": socket.gethostname(),
         "items": items,
         "inventory": collect_inventory(),
@@ -576,7 +578,7 @@ def send(config: dict, payload: dict) -> dict:
         headers={
             "Authorization": f"Bearer {config['token']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.8.2",
+            "User-Agent": "kavis-agent/0.8.3",
         },
     )
 
@@ -622,7 +624,7 @@ def send_fim_only(config: dict) -> None:
     if not fim_events:
         return
     payload = {
-        "agent_version": "0.8.2",
+        "agent_version": "0.8.3",
         "hostname": socket.gethostname(),
         "items": {"fim_events": truncate(fim_events)},
         "fim_hashes": compute_fim_hashes(fim_events),

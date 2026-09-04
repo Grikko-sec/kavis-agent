@@ -1,5 +1,5 @@
 Name:           kavis-agent
-Version:        0.8.2
+Version:        0.8.3
 Release:        1%{?dist}
 Summary:        Vulnerability check platform collection agent
 License:        Proprietary
@@ -64,6 +64,10 @@ EOF
 %systemd_postun_with_restart kavis-agent.service
 
 %changelog
+* Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.8.3-1
+- 버그 수정: 'kavis-agent configure'가 [agent] 섹션만 쓰고 [fim]은 안 만들어서
+  README/config.ini.sample의 예시와 실제 결과물이 다르던 문제 수정. 이제 [fim]이
+  없으면 빈 watch_dirs로 만들어두되, 이미 값이 있으면 그대로 보존한다.
 * Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.8.2-1
 - 인터페이스별 넷마스크(CIDR 표기, IP에 /24처럼 붙임)와 게이트웨이(ip route의 dev로 매칭)를
   network_interfaces에 같이 담아 전송. 자산 상세 페이지 인터페이스 테이블에 IP(넷마스크)와
