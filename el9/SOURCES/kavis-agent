@@ -48,7 +48,8 @@ FIM_HASH_MAX_BYTES = 5 * 1024 * 1024  # 이보다 큰 파일은 해시하지 않
 SSH_LOG_PATH = "/var/log/secure"
 SSH_LOG_STATE_PATH = "/etc/kavis-agent/.ssh_log_state.json"
 SSH_LOG_LINE_RE = re.compile(
-    r"sshd\[\d+\]:\s+(Accepted|Failed password|Failed publickey|Invalid user)"
+    # OpenSSH 9.8+(RHEL/Rocky 9.4+)부터 접속당 프로세스명이 sshd가 아니라 sshd-session이다.
+    r"sshd(?:-session)?\[\d+\]:\s+(Accepted|Failed password|Failed publickey|Invalid user)"
 )
 
 
@@ -101,7 +102,7 @@ def enroll(config: dict) -> str:
         headers={
             "Authorization": f"Bearer {config['enroll_key']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.9.0",
+            "User-Agent": "kavis-agent/0.9.1",
         },
     )
     ctx = make_ssl_context(url, config["verify_tls"])
@@ -495,7 +496,7 @@ def collect() -> dict:
         items["ssh_auth_log"] = ssh_events
 
     return {
-        "agent_version": "0.9.0",
+        "agent_version": "0.9.1",
         "hostname": socket.gethostname(),
         "items": items,
         "inventory": collect_inventory(),
@@ -646,7 +647,7 @@ def send(config: dict, payload: dict) -> dict:
         headers={
             "Authorization": f"Bearer {config['token']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.9.0",
+            "User-Agent": "kavis-agent/0.9.1",
         },
     )
 
@@ -693,7 +694,7 @@ def send_fim_only(config: dict) -> None:
     if not fim_events:
         return
     payload = {
-        "agent_version": "0.9.0",
+        "agent_version": "0.9.1",
         "hostname": socket.gethostname(),
         "items": {"fim_events": truncate(fim_events)},
         "fim_hashes": compute_fim_hashes(fim_events),

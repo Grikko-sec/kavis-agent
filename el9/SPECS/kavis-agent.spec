@@ -1,5 +1,5 @@
 Name:           kavis-agent
-Version:        0.9.0
+Version:        0.9.1
 Release:        1%{?dist}
 Summary:        Vulnerability check platform collection agent
 License:        Proprietary
@@ -64,6 +64,10 @@ EOF
 %systemd_postun_with_restart kavis-agent.service
 
 %changelog
+* Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.9.1-1
+- 버그 수정: OpenSSH 9.8+(RHEL/Rocky 9.4+ 기본)부터 접속당 프로세스명이 sshd가 아니라
+  sshd-session이라, 0.9.0의 정규식이 실제 로그인 이벤트를 하나도 못 잡고 있던 문제 수정.
+  에이전트 필터와 서버 파서(ingest.php) 둘 다 sshd(-session)? 매칭하도록 변경.
 * Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.9.0-1
 - SSH 접속 이력 수집 추가. /var/log/secure의 sshd 인증 관련 줄을 마지막으로 읽은 지점
   (inode+offset, FIM 체크포인트와 같은 방식) 이후만 원문으로 전송 — 로그 로테이션 감지 시
