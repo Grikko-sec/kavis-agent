@@ -116,6 +116,18 @@ watch_dirs = /etc/nginx, /var/www/html/config
 자산 상세 페이지의 "SSH 접속 이력" 패널에서 계정/IP 검색, 성공·실패 필터, 페이지네이션과
 함께 확인할 수 있다.
 
+## 방화벽 / fail2ban
+
+`firewall-cmd --state`/`--list-all`로 firewalld 상태와 실제 룰을, `fail2ban-client
+status`로 fail2ban 상태를 수집한다. 리스닝 포트만으론 실제로 외부에 뭐가 열려있는지
+알 수 없어서(방화벽이 막고 있을 수도 있으니) 실제 룰까지 같이 본다. 자산 상세 페이지
+개요 탭에 원문 그대로 표시된다.
+
+firewalld가 `running`이 아니면(꺼져있거나 미설치) 서버가 `FW-01` 항목으로 자동
+판정한다 — `firewall_state`는 값이 비어도 마커 문자열로 항상 전송되므로, 아예
+설치가 안 된 경우도 놓치지 않는다. fail2ban은 선택 설치 소프트웨어라 상태만 보여줄
+뿐 별도 판정은 하지 않는다.
+
 ## 동작 방식 — 상주 데몬
 
 `kavis-agent.service`는 `Type=simple` 상주 프로세스로 동작한다 (`ps`/`pstree`/

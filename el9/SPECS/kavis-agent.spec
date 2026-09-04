@@ -1,5 +1,5 @@
 Name:           kavis-agent
-Version:        0.9.1
+Version:        0.10.0
 Release:        1%{?dist}
 Summary:        Vulnerability check platform collection agent
 License:        Proprietary
@@ -64,6 +64,12 @@ EOF
 %systemd_postun_with_restart kavis-agent.service
 
 %changelog
+* Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.10.0-1
+- 방화벽(firewalld) 상태·실제 룰(firewall-cmd --state / --list-all), fail2ban 상태
+  (fail2ban-client status) 수집 추가. 둘 다 미설치/실패해도 나머지 수집에 영향 없음.
+- firewall_state는 항상 포함(값이 없어도 마커 문자열로) — 서버가 FW-01 항목으로 firewalld
+  비활성 상태를 자동 판정할 수 있도록 함.
+- 자산 상세 페이지 개요 탭에 "방화벽 / fail2ban" 패널 추가.
 * Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.9.1-1
 - 버그 수정: OpenSSH 9.8+(RHEL/Rocky 9.4+ 기본)부터 접속당 프로세스명이 sshd가 아니라
   sshd-session이라, 0.9.0의 정규식이 실제 로그인 이벤트를 하나도 못 잡고 있던 문제 수정.
