@@ -1,4 +1,4 @@
-# 부팅 시 SYSTEM 권한으로 시작하고, 죽으면 자동 재시작하는 예약 작업을 등록한다.
+﻿# 부팅 시 SYSTEM 권한으로 시작하고, 죽으면 자동 재시작하는 예약 작업을 등록한다.
 # systemd의 Type=simple + Restart=always 에 대응하는 역할.
 $ErrorActionPreference = 'Stop'
 $exePath = Join-Path $PSScriptRoot 'kavis-agent-windows.exe'

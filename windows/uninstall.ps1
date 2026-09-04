@@ -1,4 +1,4 @@
-# kavis-agent-windows 제거 (관리자 PowerShell로 실행)
+﻿# kavis-agent-windows 제거 (관리자 PowerShell로 실행)
 # 예약 작업과 설치 파일만 지운다. %ProgramData%\kavis-agent\config.ini(토큰 포함)는
 # 남겨둔다 — 재설치 시 다시 등록(enroll)하지 않도록.
 $ErrorActionPreference = 'SilentlyContinue'

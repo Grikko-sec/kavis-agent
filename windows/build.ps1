@@ -1,13 +1,11 @@
-# 이 폴더(windows\)에서 실행. kavis-agent-windows.exe 하나만 만든다 (MSI 없이).
+﻿# 이 폴더(windows\)에서 실행. kavis-agent-windows.exe 하나만 만든다 (MSI 없이).
 # 사전 준비물: Python 3.11+ (PATH 등록) — README.md 참고.
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
-Write-Host "== pyinstaller 설치 확인 ==" -ForegroundColor Cyan
-pip show pyinstaller *> $null
-if ($LASTEXITCODE -ne 0) {
-    pip install pyinstaller
-}
+Write-Host "== pyinstaller 설치 (이미 있으면 그대로 통과) ==" -ForegroundColor Cyan
+pip install pyinstaller
+if ($LASTEXITCODE -ne 0) { throw "pyinstaller 설치 실패" }
 
 Write-Host "== exe 빌드 (PyInstaller) ==" -ForegroundColor Cyan
 pyinstaller --onefile --console --name kavis-agent-windows kavis-agent-windows.py

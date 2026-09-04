@@ -1,4 +1,4 @@
-# kavis-agent-windows.exe 설치/등록 스크립트 (관리자 PowerShell로 실행)
+﻿# kavis-agent-windows.exe 설치/등록 스크립트 (관리자 PowerShell로 실행)
 # build.ps1로 만든 dist\kavis-agent-windows.exe 를 Program Files로 복사하고,
 # 부팅 시 SYSTEM 권한으로 시작 + 실패 시 자동 재시작하는 예약 작업을 등록한다.
 $ErrorActionPreference = 'Stop'
