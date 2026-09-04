@@ -7,7 +7,7 @@ $action    = New-ScheduledTaskAction -Execute $exePath -Argument 'daemon'
 $trigger   = New-ScheduledTaskTrigger -AtStartup
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 $settings  = New-ScheduledTaskSettingsSet `
-    -Restart -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
+    -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit ([TimeSpan]::Zero) `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 
