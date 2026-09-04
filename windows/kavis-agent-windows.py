@@ -37,7 +37,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-AGENT_VERSION = "0.2.0"
+AGENT_VERSION = "0.2.1"
 _PROGRAMDATA = os.environ.get("ProgramData", r"C:\ProgramData")
 _STATE_DIR = os.path.join(_PROGRAMDATA, "kavis-agent")
 CONFIG_PATH = os.path.join(_STATE_DIR, "config.ini")
@@ -47,7 +47,10 @@ DEFAULT_INTERVAL_SECONDS = 3600
 DEFAULT_JITTER_SECONDS = 300
 
 # ── FIM(파일 무결성 모니터링) ─────────────────────────
-FIM_AUDIT_SUBCATEGORY = "File System"
+# auditpol은 영문 서브카테고리 이름("File System")을 한국어 등 비영문 Windows에서
+# 못 알아먹고 0x00000057(매개 변수가 틀립니다) 오류를 낸다 — 실제 서버(한국어)에서
+# 확인됨. 서브카테고리 GUID(로케일 무관, 고정값)로 지정해야 모든 언어판에서 동작한다.
+FIM_AUDIT_SUBCATEGORY = "{0CCE921D-69AE-11D9-BED3-505054503030}"  # Audit File System
 FIM_CHECKPOINT_PATH = os.path.join(_STATE_DIR, ".fim_checkpoint.json")
 FIM_SERVER_DIRS_PATH = os.path.join(_STATE_DIR, ".fim_watch_dirs.json")
 FIM_INITIAL_LOOKBACK_SECONDS = 3600  # 체크포인트가 없는 최초 실행 시 최근 1시간만
@@ -524,7 +527,17 @@ def sync_fim_audit(dirs: list) -> bool:
         log("[FIM] auditpol을 찾을 수 없어 파일 무결성 모니터링을 건너뜁니다.")
         return False
 
-    run_cmd(["auditpol", "/set", f"/subcategory:{FIM_AUDIT_SUBCATEGORY}", "/success:enable", "/failure:disable"], timeout=30)
+    try:
+        r = subprocess.run(
+            ["auditpol", "/set", f"/subcategory:{FIM_AUDIT_SUBCATEGORY}", "/success:enable", "/failure:disable"],
+            capture_output=True, text=True, timeout=30, check=False, stdin=subprocess.DEVNULL,
+        )
+        if r.returncode != 0:
+            log(f"[FIM] auditpol 감사 정책 설정 실패 (rc={r.returncode}): {(r.stdout + r.stderr).strip()[:300]}")
+            return False
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        log(f"[FIM] auditpol 실행 실패: {e}")
+        return False
 
     ok_any = False
     for d in dirs:
