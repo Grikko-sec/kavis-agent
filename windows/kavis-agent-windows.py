@@ -37,7 +37,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-AGENT_VERSION = "0.2.1"
+AGENT_VERSION = "0.2.2"
 _PROGRAMDATA = os.environ.get("ProgramData", r"C:\ProgramData")
 _STATE_DIR = os.path.join(_PROGRAMDATA, "kavis-agent")
 CONFIG_PATH = os.path.join(_STATE_DIR, "config.ini")
@@ -461,7 +461,7 @@ try {
     $startTime = (Get-Date).AddHours(-1)
 }
 
-$events = @(Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4663,4670; StartTime=$startTime} -ErrorAction SilentlyContinue)
+$events = @(Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4663,4670; StartTime=$startTime} -MaxEvents 3000 -ErrorAction SilentlyContinue)
 $out = @()
 foreach ($e in $events) {
     try {
@@ -583,7 +583,9 @@ def collect_fim_events() -> list:
     since = read_fim_checkpoint()
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    out = run_powershell_file(FIM_EVENTS_PS1, args=[since], timeout=60)
+    # 보안 이벤트 로그가 커지면(대량 파일 작업 등) Get-WinEvent 조회 자체가 오래 걸릴 수 있어
+    # 넉넉하게 잡는다 — 60초에서 잘려서 조용히 빈 결과 취급되던 문제(실사용 중 확인됨).
+    out = run_powershell_file(FIM_EVENTS_PS1, args=[since], timeout=180)
     _fim_checkpoint_pending = now_iso  # 조회에 성공했으니, 이 시각 이후만 다음번에 다시 물어보면 된다
 
     if not out.strip():
