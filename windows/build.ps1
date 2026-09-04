@@ -4,11 +4,13 @@ $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
 Write-Host "== pyinstaller 설치 (이미 있으면 그대로 통과) ==" -ForegroundColor Cyan
-pip install pyinstaller
+python -m pip install pyinstaller
 if ($LASTEXITCODE -ne 0) { throw "pyinstaller 설치 실패" }
 
 Write-Host "== exe 빌드 (PyInstaller) ==" -ForegroundColor Cyan
-pyinstaller --onefile --console --name kavis-agent-windows kavis-agent-windows.py
+# pip이 설치한 pyinstaller.exe가 PATH에 없는 환경이 흔해서(Python Scripts 디렉터리 미등록),
+# PATH와 무관하게 항상 동작하는 'python -m PyInstaller' 형태로 실행한다.
+python -m PyInstaller --onefile --console --name kavis-agent-windows kavis-agent-windows.py
 if ($LASTEXITCODE -ne 0) { throw "pyinstaller 빌드 실패" }
 
 Write-Host "`n완료: $(Resolve-Path dist\kavis-agent-windows.exe)" -ForegroundColor Green
