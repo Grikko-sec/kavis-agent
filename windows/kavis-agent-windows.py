@@ -26,7 +26,7 @@ import random
 import urllib.error
 import urllib.request
 
-AGENT_VERSION = "0.1.1"
+AGENT_VERSION = "0.1.2"
 CONFIG_PATH = os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"), "kavis-agent", "config.ini")
 MAX_ITEM_BYTES = 190_000  # 서버 측 200KB 제한보다 여유를 둔다
 TIMEOUT_SECONDS = 20
@@ -235,7 +235,7 @@ if ($disks) { $diskGb = [math]::Round((($disks | Measure-Object -Property Size -
 $virt = "physical"
 if ($cs.Model -match "Virtual|VMware|KVM|Xen|VirtualBox") { $virt = "virtual" }
 
-$hotfixes = Try-Get { @(Get-HotFix | Select-Object HotFixID,Description,InstalledOn) | ConvertTo-Json -Compress -Depth 3 }
+$hotfixes = Try-Get { ConvertTo-Json -InputObject @(Get-HotFix | Select-Object HotFixID,Description,InstalledOn) -Compress -Depth 3 }
 
 $software = @()
 foreach ($base in @(
@@ -249,14 +249,15 @@ foreach ($base in @(
     } | Out-Null
 }
 
-$localUsers  = Try-Get { @(Get-LocalUser | Select-Object Name,Enabled,PasswordRequired,PasswordExpires,LastLogon) | ConvertTo-Json -Compress -Depth 3 }
-$localAdmins = Try-Get { @(Get-LocalGroupMember -Group "Administrators" | Select-Object Name,ObjectClass,PrincipalSource) | ConvertTo-Json -Compress -Depth 3 }
-$fwProfiles  = Try-Get { @(Get-NetFirewallProfile | Select-Object Name,Enabled,DefaultInboundAction,DefaultOutboundAction) | ConvertTo-Json -Compress -Depth 3 }
+$localUsers  = Try-Get { ConvertTo-Json -InputObject @(Get-LocalUser | Select-Object Name,Enabled,PasswordRequired,PasswordExpires,LastLogon) -Compress -Depth 3 }
+$localAdmins = Try-Get { ConvertTo-Json -InputObject @(Get-LocalGroupMember -Group "Administrators" | Select-Object Name,ObjectClass,PrincipalSource) -Compress -Depth 3 }
+$fwProfiles  = Try-Get { ConvertTo-Json -InputObject @(Get-NetFirewallProfile | Select-Object Name,Enabled,DefaultInboundAction,DefaultOutboundAction) -Compress -Depth 3 }
 $netAccounts = Try-Get { (net accounts | Out-String) }
 $auditPolicy = Try-Get { (auditpol /get /category:* | Out-String) }
 $listenPorts = Try-Get {
-    @(Get-NetTCPConnection -State Listen | Select-Object LocalAddress,LocalPort,OwningProcess,
-      @{n='ProcessName';e={(Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).ProcessName}}) | ConvertTo-Json -Compress -Depth 3
+    $conns = @(Get-NetTCPConnection -State Listen | Select-Object LocalAddress,LocalPort,OwningProcess,
+      @{n='ProcessName';e={(Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).ProcessName}})
+    ConvertTo-Json -InputObject $conns -Compress -Depth 3
 }
 
 $rdpKey    = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
@@ -280,8 +281,9 @@ function Test-UnquotedServicePath {
     return $false
 }
 $unquotedSvc = Try-Get {
-    @(Get-CimInstance Win32_Service | Where-Object { Test-UnquotedServicePath $_.PathName } |
-      Select-Object Name,PathName,StartMode,StartName) | ConvertTo-Json -Compress -Depth 3
+    $bad = @(Get-CimInstance Win32_Service | Where-Object { Test-UnquotedServicePath $_.PathName } |
+      Select-Object Name,PathName,StartMode,StartName)
+    ConvertTo-Json -InputObject $bad -Compress -Depth 3
 }
 
 $result = [ordered]@{
@@ -306,7 +308,7 @@ $result = [ordered]@{
     dns_servers = $dnsServers
     gateway = $gateway
     installed_hotfixes = $hotfixes
-    installed_software = (@($software) | ConvertTo-Json -Compress -Depth 3)
+    installed_software = (ConvertTo-Json -InputObject @($software) -Compress -Depth 3)
     local_users = $localUsers
     local_administrators = $localAdmins
     firewall_profiles = $fwProfiles
