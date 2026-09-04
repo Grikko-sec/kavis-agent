@@ -133,12 +133,20 @@ firewalld가 `running`이 아니면(꺼져있거나 미설치) 서버가 `FW-01`
 에이전트가 임의 명령을 받아 실행하는 범용 원격 제어(C2) 기능이 **아니다**. 서버가
 큐에 넣을 수 있는 작업은 처음부터 정해진 4가지뿐이다:
 
-| action_type       | 동작                              | params        |
-|-------------------|-----------------------------------|---------------|
-| `firewalld_start` | `systemctl start firewalld`       | (없음)        |
-| `firewalld_stop`  | `systemctl stop firewalld`        | (없음)        |
-| `fail2ban_ban`    | `fail2ban-client set sshd banip <IP>`   | 차단할 IP |
-| `fail2ban_unban`  | `fail2ban-client set sshd unbanip <IP>` | 해제할 IP |
+| action_type          | 동작                                     | params    |
+|----------------------|------------------------------------------|-----------|
+| `firewalld_start`    | `systemctl start firewalld`               | (없음)    |
+| `firewalld_stop`     | `systemctl stop firewalld`                | (없음)    |
+| `fail2ban_ban`       | `fail2ban-client set sshd banip <IP>`     | 차단할 IP |
+| `fail2ban_unban`     | `fail2ban-client set sshd unbanip <IP>`   | 해제할 IP |
+| `firewalld_ban_ip`   | `firewall-cmd --add-rich-rule=...reject`  | 차단할 IP |
+| `firewalld_unban_ip` | `firewall-cmd --remove-rich-rule=...`     | 해제할 IP |
+
+`firewalld_ban_ip`/`firewalld_unban_ip`는 fail2ban과 별개로, firewalld의 rich rule을
+직접 추가/제거해 특정 IP를 reject한다 — fail2ban이 없는 서버에서도 쓸 수 있고, sshd
+jail 범위를 벗어난(다른 서비스 대상) 차단에도 쓸 수 있다. runtime(즉시 적용)과
+permanent(재부팅·reload 후에도 유지) 둘 다 같이 적용한다. IPv4/IPv6 모두 지원한다
+(주소에 `:`가 있으면 ipv6 family로 자동 판별).
 
 **검증은 이중으로 이루어진다.** 웹에서 요청이 들어올 때 서버가 먼저 위 화이트리스트와
 IP 형식(정규식)을 검사해 `agent_actions` 테이블에 `PENDING`으로만 등록하고, 그 외

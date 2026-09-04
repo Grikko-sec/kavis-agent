@@ -102,7 +102,7 @@ def enroll(config: dict) -> str:
         headers={
             "Authorization": f"Bearer {config['enroll_key']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.11.0",
+            "User-Agent": "kavis-agent/0.12.0",
         },
     )
     ctx = make_ssl_context(url, config["verify_tls"])
@@ -509,7 +509,7 @@ def collect() -> dict:
         items["ssh_auth_log"] = ssh_events
 
     return {
-        "agent_version": "0.11.0",
+        "agent_version": "0.12.0",
         "hostname": socket.gethostname(),
         "items": items,
         "inventory": collect_inventory(),
@@ -656,9 +656,23 @@ FIREWALLD_ACTION_COMMANDS = {
     "firewalld_start": ["systemctl", "start", "firewalld"],
     "firewalld_stop": ["systemctl", "stop", "firewalld"],
 }
+FIREWALLD_IP_ACTIONS = {  # rich rule로 direct하게 IP 차단/해제 — fail2ban 미설치 환경에서도 쓸 수 있다
+    "firewalld_ban_ip": "add",
+    "firewalld_unban_ip": "remove",
+}
 IP_RE = re.compile(r"^[0-9a-fA-F:.]{3,45}$")  # IPv4/IPv6 대략적인 형식만 — 그 외엔 실행하지 않는다
 
 _pending_action_results = []  # 이번 사이클에 실행한 결과 — 다음 전송 때 같이 보고한다
+
+
+def firewalld_rich_rule(ip: str, verb: str) -> str:
+    """지정 IP를 firewall-cmd rich rule로 reject — verb는 'add' 또는 'remove'.
+    runtime(즉시 적용)과 permanent(재부팅/reload 후에도 유지) 둘 다 적용한다."""
+    family = "ipv6" if ":" in ip else "ipv4"
+    rule = f'rule family="{family}" source address="{ip}" reject'
+    out_runtime = run_cmd(["firewall-cmd", f"--{verb}-rich-rule={rule}"], timeout=30)
+    out_permanent = run_cmd(["firewall-cmd", "--permanent", f"--{verb}-rich-rule={rule}"], timeout=30)
+    return (out_runtime + out_permanent).strip() or "OK"
 
 
 def apply_pending_actions(actions: list) -> None:
@@ -693,6 +707,15 @@ def apply_pending_actions(actions: list) -> None:
                     verb = "banip" if action_type == "fail2ban_ban" else "unbanip"
                     output = run_cmd(["fail2ban-client", "set", "sshd", verb, ip], timeout=30)
                     ok = True
+            elif action_type in FIREWALLD_IP_ACTIONS:
+                ip = params.strip()
+                if not IP_RE.match(ip):
+                    output = f"잘못된 IP 형식이라 건너뜀: {ip!r}"
+                elif not shutil.which("firewall-cmd"):
+                    output = "firewall-cmd 명령을 찾을 수 없음 — 실행하지 않음"
+                else:
+                    output = firewalld_rich_rule(ip, FIREWALLD_IP_ACTIONS[action_type])
+                    ok = True
             else:
                 output = f"화이트리스트에 없는 action_type — 건너뜀: {action_type}"
         except Exception as e:  # noqa: BLE001 - 작업 하나가 예외를 던져도 나머지/다음 사이클엔 영향 없어야 한다
@@ -723,7 +746,7 @@ def send(config: dict, payload: dict) -> dict:
         headers={
             "Authorization": f"Bearer {config['token']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.11.0",
+            "User-Agent": "kavis-agent/0.12.0",
         },
     )
 
@@ -773,7 +796,7 @@ def send_fim_only(config: dict) -> None:
     fim_events = collect_fim_events()
     items = {"fim_events": truncate(fim_events)} if fim_events else {}
     payload = {
-        "agent_version": "0.11.0",
+        "agent_version": "0.12.0",
         "hostname": socket.gethostname(),
         "items": items,
         "fim_hashes": compute_fim_hashes(fim_events) if fim_events else {},

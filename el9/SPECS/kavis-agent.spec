@@ -1,5 +1,5 @@
 Name:           kavis-agent
-Version:        0.11.0
+Version:        0.12.0
 Release:        1%{?dist}
 Summary:        Vulnerability check platform collection agent
 License:        Proprietary
@@ -64,6 +64,14 @@ EOF
 %systemd_postun_with_restart kavis-agent.service
 
 %changelog
+* Fri Sep 04 2026 kavis-platform <admin@security.hyunni.com> - 0.12.0-1
+- 화이트리스트에 firewalld_ban_ip / firewalld_unban_ip 추가 — fail2ban 없이도
+  firewall-cmd rich rule(runtime+permanent 동시 적용)로 특정 IP를 직접 reject할
+  수 있다. IPv4/IPv6 모두 지원(주소에 ':' 포함 여부로 family 자동 판별).
+- 실행 전 firewall-cmd 바이너리 존재 여부를 shutil.which로 확인 후 실행.
+- Firewall 탭에 "firewalld 직접 차단" 폼(차단/해제) 추가 — fail2ban IP 차단 폼과
+  나란히, DB agent_actions.action_type ENUM도 두 값 추가로 확장.
+- 자산 상세 페이지 탭 이름 VMDR로 재조정: Findings → VMDR.
 * Fri Sep 04 2026 kavis-platform <admin@security.hyunni.com> - 0.11.0-1
 - 원격 작업(agent_actions) 큐 처리 추가 — 임의 명령 실행이 아니라 정해진 화이트리스트
   4개(firewalld_start, firewalld_stop, fail2ban_ban, fail2ban_unban)만 서버가 큐에
