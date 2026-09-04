@@ -37,7 +37,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-AGENT_VERSION = "0.2.2"
+AGENT_VERSION = "0.2.3"
 _PROGRAMDATA = os.environ.get("ProgramData", r"C:\ProgramData")
 _STATE_DIR = os.path.join(_PROGRAMDATA, "kavis-agent")
 CONFIG_PATH = os.path.join(_STATE_DIR, "config.ini")
@@ -526,6 +526,22 @@ def sync_fim_audit(dirs: list) -> bool:
     if not shutil.which("auditpol.exe") and not shutil.which("auditpol"):
         log("[FIM] auditpol을 찾을 수 없어 파일 무결성 모니터링을 건너뜁니다.")
         return False
+
+    # auditpol로 서브카테고리(File System) 단위 감사를 켜도, 이 레지스트리 값이 없으면
+    # Windows가 옛날 방식(카테고리 단위 — 기본 꺼짐)을 우선시해서 SACL을 걸어도 이벤트가
+    # 하나도 안 남는다 — 실제 서버에서 재현/확인된 문제. Microsoft도 세부 감사 정책을 쓸 때
+    # 이 값을 켜도록 공식 권장한다.
+    try:
+        r = subprocess.run(
+            ["reg", "add", r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa",
+             "/v", "SCENoApplyLegacyAuditPolicy", "/t", "REG_DWORD", "/d", "1", "/f"],
+            capture_output=True, text=True, timeout=15, check=False, stdin=subprocess.DEVNULL,
+        )
+        if r.returncode != 0:
+            log(f"[FIM] SCENoApplyLegacyAuditPolicy 레지스트리 설정 실패 (rc={r.returncode}): "
+                f"{(r.stdout + r.stderr).strip()[:300]}")
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        log(f"[FIM] 레지스트리 설정(reg.exe) 실행 실패: {e}")
 
     try:
         r = subprocess.run(
