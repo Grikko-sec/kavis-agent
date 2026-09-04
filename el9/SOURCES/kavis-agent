@@ -102,7 +102,7 @@ def enroll(config: dict) -> str:
         headers={
             "Authorization": f"Bearer {config['enroll_key']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.10.0",
+            "User-Agent": "kavis-agent/0.11.0",
         },
     )
     ctx = make_ssl_context(url, config["verify_tls"])
@@ -509,11 +509,12 @@ def collect() -> dict:
         items["ssh_auth_log"] = ssh_events
 
     return {
-        "agent_version": "0.10.0",
+        "agent_version": "0.11.0",
         "hostname": socket.gethostname(),
         "items": items,
         "inventory": collect_inventory(),
         "fim_hashes": fim_hashes,
+        "action_results": collect_action_results(),
     }
 
 
@@ -647,6 +648,68 @@ def collect_inventory() -> dict:
     return inv
 
 
+# ── 원격 작업(화이트리스트) ────────────────────────────
+# 서버가 임의 명령을 내려보내는 게 아니다 — 정해진 action_type 몇 개만 있고, 그마저도
+# 여기(에이전트 쪽)에서 한 번 더 화이트리스트로 걸러서 실행한다. DB가 뚫려서 이상한
+# action_type이 와도, 여기 없는 건 그냥 무시된다.
+FIREWALLD_ACTION_COMMANDS = {
+    "firewalld_start": ["systemctl", "start", "firewalld"],
+    "firewalld_stop": ["systemctl", "stop", "firewalld"],
+}
+IP_RE = re.compile(r"^[0-9a-fA-F:.]{3,45}$")  # IPv4/IPv6 대략적인 형식만 — 그 외엔 실행하지 않는다
+
+_pending_action_results = []  # 이번 사이클에 실행한 결과 — 다음 전송 때 같이 보고한다
+
+
+def apply_pending_actions(actions: list) -> None:
+    global _pending_action_results
+    if not isinstance(actions, list):
+        return
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        action_id = action.get("id")
+        action_type = action.get("action_type")
+        params = action.get("params") or ""
+        if not isinstance(action_id, int) or not isinstance(action_type, str):
+            continue
+
+        ok, output = False, ""
+        try:
+            if action_type in FIREWALLD_ACTION_COMMANDS:
+                cmd = FIREWALLD_ACTION_COMMANDS[action_type]
+                if not shutil.which(cmd[0]):
+                    output = f"{cmd[0]} 명령을 찾을 수 없음 — 실행하지 않음"
+                else:
+                    output = run_cmd(cmd, timeout=30)
+                    ok = True
+            elif action_type in ("fail2ban_ban", "fail2ban_unban"):
+                ip = params.strip()
+                if not IP_RE.match(ip):
+                    output = f"잘못된 IP 형식이라 건너뜀: {ip!r}"
+                elif not shutil.which("fail2ban-client"):
+                    output = "fail2ban-client 명령을 찾을 수 없음 — 실행하지 않음"
+                else:
+                    verb = "banip" if action_type == "fail2ban_ban" else "unbanip"
+                    output = run_cmd(["fail2ban-client", "set", "sshd", verb, ip], timeout=30)
+                    ok = True
+            else:
+                output = f"화이트리스트에 없는 action_type — 건너뜀: {action_type}"
+        except Exception as e:  # noqa: BLE001 - 작업 하나가 예외를 던져도 나머지/다음 사이클엔 영향 없어야 한다
+            output = f"실행 중 예외: {e}"
+
+        log(f"[ACTION] {action_type}(id={action_id}) => ok={ok}, output={output.strip()[:200]!r}")
+        _pending_action_results.append({"id": action_id, "ok": ok, "output": output[:2000]})
+
+
+def collect_action_results() -> list:
+    """직전 사이클에서 실행한 원격 작업 결과 — 다음 전송 페이로드에 실어 보낸다."""
+    global _pending_action_results
+    results = _pending_action_results
+    _pending_action_results = []
+    return results
+
+
 def send(config: dict, payload: dict) -> dict:
     """전송하고, 서버 응답 JSON을 파싱해 돌려준다(예: fim_watch_dirs 반영에 사용).
     파싱 실패해도 전송 자체는 이미 성공(200)한 것이므로 빈 dict를 반환할 뿐 실패로 취급하지 않는다."""
@@ -660,7 +723,7 @@ def send(config: dict, payload: dict) -> dict:
         headers={
             "Authorization": f"Bearer {config['token']}",
             "Content-Type": "application/json",
-            "User-Agent": "kavis-agent/0.10.0",
+            "User-Agent": "kavis-agent/0.11.0",
         },
     )
 
@@ -684,6 +747,8 @@ def send(config: dict, payload: dict) -> dict:
         return {}
     if "fim_watch_dirs" in result:
         save_fim_watch_dirs(result["fim_watch_dirs"])
+    if result.get("pending_actions"):
+        apply_pending_actions(result["pending_actions"])
     return result
 
 
@@ -701,18 +766,21 @@ def cmd_run(_args) -> None:
 
 
 def send_fim_only(config: dict) -> None:
-    """FIM 전용 짧은 주기 — 패키지/dnf 등 무거운 전체 수집은 건드리지 않고 FIM 이벤트만 확인해 보낸다.
-    새 이벤트가 없으면 아예 전송하지 않는다(매번 빈 요청을 보낼 필요 없음)."""
+    """FIM 전용 짧은 주기 — 패키지/dnf 등 무거운 전체 수집은 건드리지 않는다.
+    FIM 이벤트가 없어도 매번 전송한다 — 방화벽 시작/중지, fail2ban 밴/언밴 같은 원격 작업을
+    무거운 전체 수집 주기(기본 1시간)까지 기다리지 않고 이 짧은 주기(기본 3분)로 픽업·
+    보고하기 위해서다. 페이로드 자체는 가벼워서(FIM 이벤트 없으면 빈 items) 부담이 적다."""
     fim_events = collect_fim_events()
-    if not fim_events:
-        return
+    items = {"fim_events": truncate(fim_events)} if fim_events else {}
     payload = {
-        "agent_version": "0.10.0",
+        "agent_version": "0.11.0",
         "hostname": socket.gethostname(),
-        "items": {"fim_events": truncate(fim_events)},
-        "fim_hashes": compute_fim_hashes(fim_events),
+        "items": items,
+        "fim_hashes": compute_fim_hashes(fim_events) if fim_events else {},
+        "action_results": collect_action_results(),
     }
-    log("[FIM] 새 이벤트 감지, 전송 중...")
+    if fim_events:
+        log("[FIM] 새 이벤트 감지, 전송 중...")
     send(config, payload)
     commit_fim_checkpoint()
 

@@ -121,12 +121,39 @@ watch_dirs = /etc/nginx, /var/www/html/config
 `firewall-cmd --state`/`--list-all`로 firewalld 상태와 실제 룰을, `fail2ban-client
 status`로 fail2ban 상태를 수집한다. 리스닝 포트만으론 실제로 외부에 뭐가 열려있는지
 알 수 없어서(방화벽이 막고 있을 수도 있으니) 실제 룰까지 같이 본다. 자산 상세 페이지
-개요 탭에 원문 그대로 표시된다.
+Firewall 탭에 원문 그대로 표시된다.
 
 firewalld가 `running`이 아니면(꺼져있거나 미설치) 서버가 `FW-01` 항목으로 자동
 판정한다 — `firewall_state`는 값이 비어도 마커 문자열로 항상 전송되므로, 아예
 설치가 안 된 경우도 놓치지 않는다. fail2ban은 선택 설치 소프트웨어라 상태만 보여줄
 뿐 별도 판정은 하지 않는다.
+
+## 원격 작업 (firewalld / fail2ban)
+
+에이전트가 임의 명령을 받아 실행하는 범용 원격 제어(C2) 기능이 **아니다**. 서버가
+큐에 넣을 수 있는 작업은 처음부터 정해진 4가지뿐이다:
+
+| action_type       | 동작                              | params        |
+|-------------------|-----------------------------------|---------------|
+| `firewalld_start` | `systemctl start firewalld`       | (없음)        |
+| `firewalld_stop`  | `systemctl stop firewalld`        | (없음)        |
+| `fail2ban_ban`    | `fail2ban-client set sshd banip <IP>`   | 차단할 IP |
+| `fail2ban_unban`  | `fail2ban-client set sshd unbanip <IP>` | 해제할 IP |
+
+**검증은 이중으로 이루어진다.** 웹에서 요청이 들어올 때 서버가 먼저 위 화이트리스트와
+IP 형식(정규식)을 검사해 `agent_actions` 테이블에 `PENDING`으로만 등록하고, 그 외
+어떤 `action_type`/파라미터도 거부한다. 에이전트도 자기 쪽 화이트리스트로 한 번 더
+같은 검사를 하고 나서야 실행한다 — 서버가 침해당하더라도 에이전트가 화이트리스트
+밖의 명령을 실행할 길이 없도록 하기 위함이다. 실행 직전에는 `systemctl`/
+`fail2ban-client` 바이너리가 실제로 있는지도 확인해서, 없는 경우 "성공"으로 잘못
+보고하지 않고 명확한 사유를 남긴다.
+
+작업 픽업/보고는 무거운 전체 수집(기본 1시간) 주기가 아니라 가벼운 FIM 전용 주기
+(기본 3분)에 실린다 — 이 주기는 새 FIM 이벤트가 없어도 매번 서버에 체크인하도록
+동작해서, 웹에서 요청한 작업이 최대 수 분 내로 실행되고 결과(성공/실패 + 출력
+일부)가 다시 반영된다. 자산 상세 페이지 Firewall 탭에서 시작/중지·차단/해제
+버튼과 최근 작업 이력을, SSH 탭에서는 브루트포스 등으로 플래그된 접속 이력 행에
+IP가 미리 채워진 원클릭 "차단" 버튼을 각각 확인할 수 있다 (둘 다 ADMIN 권한 필요).
 
 ## 동작 방식 — 상주 데몬
 

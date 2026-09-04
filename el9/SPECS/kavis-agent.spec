@@ -1,5 +1,5 @@
 Name:           kavis-agent
-Version:        0.10.0
+Version:        0.11.0
 Release:        1%{?dist}
 Summary:        Vulnerability check platform collection agent
 License:        Proprietary
@@ -64,6 +64,20 @@ EOF
 %systemd_postun_with_restart kavis-agent.service
 
 %changelog
+* Fri Sep 04 2026 kavis-platform <admin@security.hyunni.com> - 0.11.0-1
+- 원격 작업(agent_actions) 큐 처리 추가 — 임의 명령 실행이 아니라 정해진 화이트리스트
+  4개(firewalld_start, firewalld_stop, fail2ban_ban, fail2ban_unban)만 서버가 큐에
+  넣으면 에이전트가 다음 FIM 주기(최대 ~3분)에 가져와 실행하고 결과를 보고한다.
+  화이트리스트/IP 형식 검증은 서버(큐 등록 시)와 에이전트(실행 직전) 이중으로 수행.
+- 실행 전 systemctl/fail2ban-client 바이너리 존재 여부를 shutil.which로 먼저 확인,
+  없으면 "성공"으로 잘못 보고하지 않고 명확한 실패 사유를 결과에 남김.
+- send_fim_only()가 새 FIM 이벤트가 없어도 매 주기 항상 전송하도록 변경 — 대기 중인
+  원격 작업을 무거운 1시간 주기가 아니라 빠른 FIM 주기(기본 3분) 안에 픽업하기 위함.
+- 자산 상세 페이지에 Firewall 탭 신설(기존 개요 탭의 방화벽/fail2ban 패널을 이곳으로
+  이동), firewalld 시작/중지 및 fail2ban IP 차단/해제를 웹에서 큐잉하는 UI와 최근
+  작업 이력 테이블 추가. SSH 탭의 이상탐지(브루트포스 등) 행에도 원클릭 "차단" 버튼 추가.
+- 탭 이름을 전부 영문으로 통일: 개요→Overview, 방화벽→Firewall, 에이전트→Agent,
+  취약점→Findings (SSH/FIM은 이미 영문이라 그대로).
 * Mon Aug 17 2026 kavis-platform <admin@security.hyunni.com> - 0.10.0-1
 - 방화벽(firewalld) 상태·실제 룰(firewall-cmd --state / --list-all), fail2ban 상태
   (fail2ban-client status) 수집 추가. 둘 다 미설치/실패해도 나머지 수집에 영향 없음.
