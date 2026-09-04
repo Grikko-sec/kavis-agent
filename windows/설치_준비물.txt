@@ -1,0 +1,54 @@
+Kavis 윈도우 에이전트 빌드 - 준비물 체크리스트
+=================================================
+
+[설치할 프로그램] (윈도우 PC/서버에)
+
+1) Python 3.11 이상
+   - 다운로드: https://python.org/downloads
+   - 설치 화면에서 "Add python.exe to PATH" 반드시 체크
+
+2) .NET 8 SDK
+   - 다운로드: https://dotnet.microsoft.com/download
+   - MSI 설치 파일(kavis-agent-windows-installer.msi)을 만드는 WiX 도구가
+     이 위에서 동작함
+
+
+[소스 파일 받는 방법]
+
+git이 있으면:
+   git clone https://github.com/Grikko-sec/kavis-agent.git
+   cd kavis-agent\windows
+
+git이 없으면:
+   https://github.com/Grikko-sec/kavis-agent/tree/main/windows
+   여기서 windows 폴더 통째로 다운로드
+
+
+[빌드 - windows 폴더 안에서, PowerShell "관리자 권한"으로 실행]
+
+   .\build.ps1
+
+   -> 같은 폴더에 kavis-agent-windows-installer.msi 생성됨
+      (이게 RPM 파일에 해당하는 설치 패키지)
+
+
+[설치]
+
+   msiexec /i kavis-agent-windows-installer.msi /quiet
+
+
+[등록 - 최초 1회, 관리자 PowerShell]
+
+   cd "C:\Program Files\Kavis Agent"
+   .\kavis-agent-windows.exe configure --server-url https://<서버주소> --enroll-key <등록키>
+   .\kavis-agent-windows.exe collect
+   (여기서 "전송 성공 (200)" 뜨면 정상 -> Kavis 웹 자산 목록에 자동 등록됨)
+
+   그 다음 상시 수집 시작:
+   Restart-ScheduledTask -TaskName KavisAgent
+
+
+[참고]
+- 자세한 설명/문제 해결/제거 방법: windows\README.md
+- build.ps1 이나 wix build 단계에서 오류 나면 그 메시지 그대로 알려주면
+  바로 고쳐드립니다 (리눅스에서는 빌드 검증을 못 해봤음)
